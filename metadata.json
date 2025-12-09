@@ -1,0 +1,5 @@
+{
+  "name": "IronLog - Gym Tracker",
+  "description": "A mobile-first, distraction-free gym workout tracker. Log sets, track progress with visual charts, and generate AI-powered routines using Gemini.",
+  "requestFramePermissions": []
+}
