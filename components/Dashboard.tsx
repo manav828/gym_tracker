@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Routine, WorkoutSession, UserProfile, BodyWeightLog, FoodLog, WaterLog } from '../types';
 import { DatabaseService } from '../services/databaseService';
 import { GeminiService } from '../services/geminiService';
-import { Button, Card, Modal, Input } from './Shared';
+import { Button, Card, Modal, Input, ConfirmationModal } from './Shared';
 import { NutritionDashboard } from './Nutrition';
 import { Calendar as CalendarIcon, Activity, Plus, Play, Trash, BarChart as BarChartIcon, Sparkles, Send, Edit2, UserCircle, Scale, ChevronLeft, ChevronRight, Search, BookOpen, Copy, ArrowLeft, X, Ruler, TrendingUp, Info, Flame, Droplets } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -174,49 +174,38 @@ const PREDEFINED_TEMPLATES = [
 ];
 
 // --- Home Screen ---
-export const HomeScreen: React.FC<{ 
-    routines: Routine[]; 
-    onStartWorkout: (routine: Routine) => void; 
+export const HomeScreen: React.FC<{
+    routines: Routine[];
+    onStartWorkout: (routine: Routine) => void;
     onViewHistory: () => void;
     onResume: (session: WorkoutSession) => void;
     activeSession: WorkoutSession | null;
-}> = ({ routines, onStartWorkout, onViewHistory, onResume, activeSession }) => {
-    const [stats, setStats] = useState({ workouts: 0, volume: 0 });
-    const [latestWeight, setLatestWeight] = useState<number | null>(null);
+    userProfile: UserProfile | null;
+    stats: { workouts: number, volume: number };
+    latestWeight: number | null;
+    onRefresh: () => void;
+}> = ({ routines, onStartWorkout, onViewHistory, onResume, activeSession, userProfile, stats, latestWeight, onRefresh }) => {
+    // Local UI state
     const [userHeight, setUserHeight] = useState<number | null>(null);
-    const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+    // Sync local height with profile prop when it changes
+    useEffect(() => {
+        if (userProfile?.height) setUserHeight(userProfile.height);
+    }, [userProfile]);
+
     const [isHeightModalOpen, setIsHeightModalOpen] = useState(false);
     const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
     const [inputHeight, setInputHeight] = useState('');
     const [inputWeight, setInputWeight] = useState('');
-    const [refreshTrigger, setRefreshTrigger] = useState(0); // Hack to refresh nutrition
-
-    useEffect(() => {
-        const fetchStats = async () => {
-            const sessions = await DatabaseService.getSessions();
-            const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-            const recentSessions = sessions.filter(s => s.startTime > oneWeekAgo);
-            const totalVol = recentSessions.reduce((acc, s) => acc + s.totalVolume, 0);
-            setStats({ workouts: recentSessions.length, volume: totalVol });
-
-            const history = await DatabaseService.getWeightHistory();
-            if (history.length > 0) setLatestWeight(history[history.length - 1].weight);
-
-            const profile = await DatabaseService.getUserProfile();
-            setUserProfile(profile);
-            if (profile.height) setUserHeight(profile.height);
-        };
-        fetchStats();
-    }, [refreshTrigger]);
 
     const handleSaveWeight = async () => {
         if (!inputWeight) return;
         const w = parseFloat(inputWeight);
         if (!isNaN(w)) {
             await DatabaseService.logWeight(w, new Date().toISOString().split('T')[0]);
-            setLatestWeight(w);
             setIsWeightModalOpen(false);
             setInputWeight('');
+            onRefresh(); // Trigger parent refresh
         }
     }
 
@@ -228,6 +217,7 @@ export const HomeScreen: React.FC<{
             await DatabaseService.saveUserProfile({ ...profile, height: h });
             setUserHeight(h);
             setIsHeightModalOpen(false);
+            onRefresh(); // Trigger parent refresh
         }
     }
 
@@ -247,6 +237,13 @@ export const HomeScreen: React.FC<{
 
     const bmi = calculateBMI();
     const bmiInfo = bmi ? getBMIInfo(parseFloat(bmi)) : null;
+
+    // Sort Routines: "Next Up" Logic
+    const sortedRoutines = [...routines].sort((a, b) => {
+        const timeA = a.lastPerformed || 0;
+        const timeB = b.lastPerformed || 0;
+        return timeA - timeB;
+    });
 
     return (
         <div className="p-4 space-y-6 pb-24">
@@ -274,7 +271,7 @@ export const HomeScreen: React.FC<{
             )}
 
             {/* Nutrition Module */}
-            {userProfile && <NutritionDashboard profile={userProfile} refreshTrigger={refreshTrigger} />}
+            {userProfile && <NutritionDashboard profile={userProfile} refreshTrigger={latestWeight || 0} />}
 
             {/* Quick Stats Grid */}
             <div className="grid grid-cols-2 gap-4">
@@ -297,10 +294,10 @@ export const HomeScreen: React.FC<{
                         </>
                     ) : (
                         <div className="flex flex-col items-start justify-center h-full">
-                             <div className="text-sm text-primary-500 font-bold flex items-center gap-1">Add Height <Plus size={12} /></div>
+                            <div className="text-sm text-primary-500 font-bold flex items-center gap-1">Add Height <Plus size={12} /></div>
                         </div>
                     )}
-                     {userHeight && (
+                    {userHeight && (
                         <div className="absolute bottom-3 right-3 text-gray-300" onClick={(e) => { e.stopPropagation(); setIsHeightModalOpen(true); }}>
                             <Edit2 size={12} />
                         </div>
@@ -315,23 +312,47 @@ export const HomeScreen: React.FC<{
                     <Button variant="ghost" size="sm" onClick={() => window.location.hash = '#workouts'}>Manage</Button>
                 </div>
                 <div className="space-y-3">
-                    {routines.slice(0, 3).map(routine => (
-                        <Card key={routine.id} className="flex justify-between items-center p-4 hover:border-primary-500 transition-colors cursor-pointer" onClick={() => onStartWorkout(routine)}>
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs">
-                                    {routine.name.slice(0, 3).toUpperCase()}
+                    {sortedRoutines.length === 0 ? (
+                        <div className="text-center py-8 bg-gray-50 dark:bg-dark-card rounded-xl border border-dashed border-gray-200 dark:border-gray-800">
+                            <p className="text-gray-500 mb-4">No routines found.</p>
+                            <Button onClick={() => window.location.hash = '#routines'}>Create Routine</Button>
+                        </div>
+                    ) : (
+                        sortedRoutines.map(routine => (
+                            <div key={routine.id} className="relative bg-white dark:bg-dark-card rounded-xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
+                                {activeSession && activeSession.routineId === routine.id && (
+                                    <div className="absolute top-0 right-0 bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg rounded-tr-lg animate-pulse">
+                                        IN PROGRESS
+                                    </div>
+                                )}
+                                <div className="flex justify-between items-start mb-3">
+                                    <div>
+                                        <div className="text-xs text-primary-600 dark:text-primary-400 font-bold mb-1 uppercase tracking-wider">{routine.dayLabel || 'Routine'}</div>
+                                        <h3 className="font-bold text-gray-900 dark:text-white text-lg">{routine.name}</h3>
+                                        <div className="text-xs text-gray-500 mt-1">
+                                            {routine.lastPerformed ? `Last: ${new Date(routine.lastPerformed).toLocaleDateString()}` : 'Never performed'}
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => onStartWorkout(routine)}
+                                        className="w-10 h-10 rounded-full bg-primary-500 text-white flex items-center justify-center shadow-lg shadow-primary-500/30 hover:bg-primary-600 transition-colors"
+                                    >
+                                        <Play size={20} fill="currentColor" className="ml-0.5" />
+                                    </button>
                                 </div>
-                                <div>
-                                    <h3 className="font-bold text-gray-900 dark:text-white">{routine.name}</h3>
-                                    <p className="text-xs text-gray-500">{routine.exercises.length} Exercises</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {routine.exercises.slice(0, 3).map((ex, i) => (
+                                        <span key={i} className="text-[10px] px-2 py-1 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-md font-medium">
+                                            {ex.name}
+                                        </span>
+                                    ))}
+                                    {routine.exercises.length > 3 && (
+                                        <span className="text-[10px] px-2 py-1 bg-gray-50 dark:bg-gray-800 text-gray-400 rounded-md font-medium">+{routine.exercises.length - 3}</span>
+                                    )}
                                 </div>
                             </div>
-                            <Button size="sm" variant="ghost" className="text-primary-500"><Play size={20} /></Button>
-                        </Card>
-                    ))}
-                    <Button variant="outline" className="w-full border-dashed" onClick={() => window.location.hash = '#workouts'}>
-                        <Plus size={16} className="mr-2" /> View All Routines
-                    </Button>
+                        ))
+                    )}
                 </div>
             </div>
 
@@ -339,7 +360,7 @@ export const HomeScreen: React.FC<{
             <Modal isOpen={isHeightModalOpen} onClose={() => setIsHeightModalOpen(false)} title="Update Height">
                 <div className="space-y-4">
                     <p className="text-sm text-gray-500">Enter your height to calculate BMI.</p>
-                    <Input 
+                    <Input
                         label="Height (cm)"
                         type="number"
                         placeholder="e.g. 175"
@@ -350,12 +371,12 @@ export const HomeScreen: React.FC<{
                     <Button onClick={handleSaveHeight} className="w-full">Save Height</Button>
                 </div>
             </Modal>
-            
+
             {/* Weight Modal */}
             <Modal isOpen={isWeightModalOpen} onClose={() => setIsWeightModalOpen(false)} title="Log Weight">
                 <div className="space-y-4">
                     <p className="text-sm text-gray-500">Log your current body weight.</p>
-                    <Input 
+                    <Input
                         label="Weight (kg)"
                         type="number"
                         placeholder="e.g. 80.5"
@@ -375,6 +396,7 @@ export const CalendarScreen: React.FC = () => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [sessions, setSessions] = useState<WorkoutSession[]>([]);
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
+    const [deleteId, setDeleteId] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchSessions = async () => {
@@ -384,21 +406,26 @@ export const CalendarScreen: React.FC = () => {
         fetchSessions();
     }, []);
 
-    const handleDeleteSession = async (id: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        if(confirm("Are you sure you want to delete this workout log?")) {
-            const originalSessions = [...sessions];
-            setSessions(prev => prev.filter(s => s.id !== id)); // Optimistic
+    const confirmDelete = async () => {
+        if (!deleteId) return;
+        const originalSessions = [...sessions];
+        setSessions(prev => prev.filter(s => s.id !== deleteId)); // Optimistic
 
-            try {
-                const { error } = await DatabaseService.deleteSession(id);
-                if (error) throw error;
-            } catch (err) {
-                alert("Failed to delete session. This is likely a permission issue. Please check your Supabase dashboard or internet connection.");
-                setSessions(originalSessions); // Revert
-            }
+        try {
+            const { error } = await DatabaseService.deleteSession(deleteId);
+            if (error) throw error;
+        } catch (err) {
+            alert("Failed to delete session. This is likely a permission issue. Please check your Supabase dashboard or internet connection.");
+            setSessions(originalSessions); // Revert
+        } finally {
+            setDeleteId(null);
         }
-    }
+    };
+
+    const handleDeleteClick = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setDeleteId(id);
+    };
 
     // Calendar Helpers
     const getDaysInMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
@@ -415,7 +442,7 @@ export const CalendarScreen: React.FC = () => {
         const daysInMonth = getDaysInMonth(currentDate);
         const startDay = getFirstDayOfMonth(currentDate); // 0 = Sun, 1 = Mon...
         const days = [];
-        
+
         // Empties
         for (let i = 0; i < startDay; i++) {
             days.push(<div key={`empty-${i}`} className="h-12"></div>);
@@ -423,20 +450,19 @@ export const CalendarScreen: React.FC = () => {
 
         // Days
         for (let i = 1; i <= daysInMonth; i++) {
-            const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+            const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
             const daySessions = sessions.filter(s => s.date === dateStr);
             const hasWorkout = daySessions.length > 0;
             const isSelected = selectedDate === dateStr;
 
             days.push(
-                <div 
-                    key={i} 
+                <div
+                    key={i}
                     onClick={() => setSelectedDate(dateStr)}
-                    className={`h-12 flex flex-col items-center justify-center rounded-lg cursor-pointer transition-colors relative border ${
-                        isSelected 
-                        ? 'bg-primary-500 text-white border-primary-600' 
+                    className={`h-12 flex flex-col items-center justify-center rounded-lg cursor-pointer transition-colors relative border ${isSelected
+                        ? 'bg-primary-500 text-white border-primary-600'
                         : 'bg-white dark:bg-dark-card border-transparent hover:bg-gray-50 dark:hover:bg-gray-800'
-                    }`}
+                        }`}
                 >
                     <span className={`text-sm ${hasWorkout && !isSelected ? 'font-bold' : ''}`}>{i}</span>
                     {hasWorkout && (
@@ -448,14 +474,14 @@ export const CalendarScreen: React.FC = () => {
         return days;
     }
 
-    const displayedSessions = selectedDate 
+    const displayedSessions = selectedDate
         ? sessions.filter(s => s.date === selectedDate)
-        : sessions.sort((a,b) => b.startTime - a.startTime).slice(0, 5); // Show recent if no selection
+        : sessions.sort((a, b) => b.startTime - a.startTime).slice(0, 5); // Show recent if no selection
 
     return (
         <div className="p-4 pb-24 max-w-2xl mx-auto">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">History</h1>
-            
+
             {/* Calendar Widget */}
             <div className="bg-white dark:bg-dark-card rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-4 mb-6">
                 <div className="flex justify-between items-center mb-4">
@@ -465,7 +491,7 @@ export const CalendarScreen: React.FC = () => {
                     </h2>
                     <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"><ChevronRight size={20} /></button>
                 </div>
-                
+
                 <div className="grid grid-cols-7 gap-1 text-center text-xs text-gray-400 font-bold uppercase mb-2">
                     <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
                 </div>
@@ -488,7 +514,7 @@ export const CalendarScreen: React.FC = () => {
                         <div key={session.id} className="relative pl-6 border-l-2 border-gray-200 dark:border-gray-800 pb-6 last:pb-0">
                             <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-primary-500 border-4 border-white dark:border-dark-bg"></div>
                             <div className="mb-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                                {new Date(session.startTime).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })}
+                                {new Date(session.startTime).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </div>
                             <Card className="p-0 overflow-hidden">
                                 <div className="p-4 flex justify-between items-start">
@@ -499,7 +525,7 @@ export const CalendarScreen: React.FC = () => {
                                             <span>⚖️ {session.totalVolume}kg</span>
                                         </div>
                                     </div>
-                                    <button onClick={(e) => handleDeleteSession(session.id, e)} className="text-gray-400 hover:text-red-500 p-2 z-10"><Trash size={16} /></button>
+                                    <button onClick={(e) => handleDeleteClick(session.id, e)} className="text-gray-400 hover:text-red-500 p-2 z-10"><Trash size={16} /></button>
                                 </div>
                                 {session.bodyWeight && <div className="px-4 text-xs text-purple-500 font-semibold mb-2">Body Weight: {session.bodyWeight}kg</div>}
                                 <div className="bg-gray-50 dark:bg-dark-bg/50 px-4 py-2 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500">
@@ -510,6 +536,16 @@ export const CalendarScreen: React.FC = () => {
                     ))}
                 </div>
             )}
+
+            <ConfirmationModal
+                isOpen={!!deleteId}
+                onClose={() => setDeleteId(null)}
+                onConfirm={confirmDelete}
+                title="Delete Workout Log?"
+                message="This action cannot be undone."
+                confirmText="Delete"
+                variant="danger"
+            />
         </div>
     );
 };
@@ -522,7 +558,7 @@ const AnalyticsView: React.FC = () => {
     const [allFoodLogs, setAllFoodLogs] = useState<FoodLog[]>([]);
     const [allWaterLogs, setAllWaterLogs] = useState<WaterLog[]>([]);
     const [selectedExercise, setSelectedExercise] = useState<string>('Bench Press');
-    
+
     // Derived
     const [exercisesList, setExercisesList] = useState<string[]>([]);
     const [exerciseData, setExerciseData] = useState<any[]>([]);
@@ -533,12 +569,12 @@ const AnalyticsView: React.FC = () => {
             const s = await DatabaseService.getSessions();
             const f = await DatabaseService.getAllFoodLogs();
             const wa = await DatabaseService.getAllWaterLogs();
-            
+
             // Sort by date
-            w.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-            s.sort((a,b) => a.startTime - b.startTime);
-            f.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-            wa.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            w.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            s.sort((a, b) => a.startTime - b.startTime);
+            f.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            wa.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
             setWeights(w);
             setSessions(s);
@@ -572,7 +608,7 @@ const AnalyticsView: React.FC = () => {
                 });
             }
         });
-        
+
         setExerciseData(dataPoints);
     }, [selectedExercise, sessions]);
 
@@ -633,14 +669,14 @@ const AnalyticsView: React.FC = () => {
                             <AreaChart data={weightData}>
                                 <defs>
                                     <linearGradient id="colorWeight" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#8884d8" stopOpacity={0.8}/>
-                                        <stop offset="95%" stopColor="#8884d8" stopOpacity={0}/>
+                                        <stop offset="5%" stopColor="#8884d8" stopOpacity={0.8} />
+                                        <stop offset="95%" stopColor="#8884d8" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                                <XAxis dataKey="date" tick={{fontSize: 10}} stroke="#9ca3af" />
-                                <YAxis domain={['dataMin - 2', 'dataMax + 2']} tick={{fontSize: 10}} stroke="#9ca3af" width={30} />
-                                <Tooltip 
+                                <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="#9ca3af" />
+                                <YAxis domain={['dataMin - 2', 'dataMax + 2']} tick={{ fontSize: 10 }} stroke="#9ca3af" width={30} />
+                                <Tooltip
                                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                     itemStyle={{ color: '#8884d8' }}
                                 />
@@ -657,7 +693,7 @@ const AnalyticsView: React.FC = () => {
 
             {/* Nutrition Chart */}
             <Card className="p-4">
-                 <div className="mb-4">
+                <div className="mb-4">
                     <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
                         <Flame size={18} className="text-orange-500" /> Calorie Intake
                     </h3>
@@ -667,23 +703,23 @@ const AnalyticsView: React.FC = () => {
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={nutritionData}>
                                 <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
-                                <XAxis dataKey="date" tick={{fontSize: 10}} stroke="#9ca3af" />
-                                <YAxis tick={{fontSize: 10}} stroke="#9ca3af" width={30} />
-                                <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ borderRadius: '8px' }} />
+                                <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="#9ca3af" />
+                                <YAxis tick={{ fontSize: 10 }} stroke="#9ca3af" width={30} />
+                                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '8px' }} />
                                 <Bar dataKey="calories" fill="#f97316" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     ) : (
-                         <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                        <div className="h-full flex items-center justify-center text-gray-400 text-sm">
                             Log meals to see calorie trends.
                         </div>
                     )}
                 </div>
             </Card>
 
-             {/* Water Chart */}
-             <Card className="p-4">
-                 <div className="mb-4">
+            {/* Water Chart */}
+            <Card className="p-4">
+                <div className="mb-4">
                     <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
                         <Droplets size={18} className="text-blue-500" /> Water Intake
                     </h3>
@@ -693,14 +729,14 @@ const AnalyticsView: React.FC = () => {
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={waterData}>
                                 <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
-                                <XAxis dataKey="date" tick={{fontSize: 10}} stroke="#9ca3af" />
-                                <YAxis tick={{fontSize: 10}} stroke="#9ca3af" width={30} />
-                                <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ borderRadius: '8px' }} />
+                                <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="#9ca3af" />
+                                <YAxis tick={{ fontSize: 10 }} stroke="#9ca3af" width={30} />
+                                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '8px' }} />
                                 <Bar dataKey="amount" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     ) : (
-                         <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                        <div className="h-full flex items-center justify-center text-gray-400 text-sm">
                             Track water to see hydration history.
                         </div>
                     )}
@@ -719,10 +755,10 @@ const AnalyticsView: React.FC = () => {
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={volumeData}>
                                 <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
-                                <XAxis dataKey="date" tick={{fontSize: 10}} stroke="#9ca3af" />
-                                <YAxis tick={{fontSize: 10}} stroke="#9ca3af" width={30} tickFormatter={(val) => `${(val/1000).toFixed(0)}k`} />
-                                <Tooltip 
-                                    cursor={{fill: 'transparent'}}
+                                <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="#9ca3af" />
+                                <YAxis tick={{ fontSize: 10 }} stroke="#9ca3af" width={30} tickFormatter={(val) => `${(val / 1000).toFixed(0)}k`} />
+                                <Tooltip
+                                    cursor={{ fill: 'transparent' }}
                                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                 />
                                 <Bar dataKey="volume" fill="#22c55e" radius={[4, 4, 0, 0]} />
@@ -742,7 +778,7 @@ const AnalyticsView: React.FC = () => {
                     <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-3">
                         <TrendingUp size={18} className="text-blue-500" /> Strength Progress
                     </h3>
-                    <select 
+                    <select
                         className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 text-sm dark:text-white"
                         value={selectedExercise}
                         onChange={(e) => setSelectedExercise(e.target.value)}
@@ -751,22 +787,22 @@ const AnalyticsView: React.FC = () => {
                         {exercisesList.map(ex => <option key={ex} value={ex}>{ex}</option>)}
                     </select>
                 </div>
-                
+
                 <div className="h-48 w-full">
                     {exerciseData.length > 1 ? (
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={exerciseData}>
                                 <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                                <XAxis dataKey="date" tick={{fontSize: 10}} stroke="#9ca3af" />
-                                <YAxis domain={['auto', 'auto']} tick={{fontSize: 10}} stroke="#9ca3af" width={30} />
-                                <Tooltip 
+                                <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="#9ca3af" />
+                                <YAxis domain={['auto', 'auto']} tick={{ fontSize: 10 }} stroke="#9ca3af" width={30} />
+                                <Tooltip
                                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                 />
-                                <Line type="monotone" dataKey="weight" stroke="#3b82f6" strokeWidth={2} dot={{r: 4, fill: '#3b82f6'}} activeDot={{r: 6}} />
+                                <Line type="monotone" dataKey="weight" stroke="#3b82f6" strokeWidth={2} dot={{ r: 4, fill: '#3b82f6' }} activeDot={{ r: 6 }} />
                             </LineChart>
                         </ResponsiveContainer>
                     ) : (
-                         <div className="h-full flex items-center justify-center text-gray-400 text-sm text-center px-4">
+                        <div className="h-full flex items-center justify-center text-gray-400 text-sm text-center px-4">
                             {exercisesList.length === 0 ? "Complete a workout first!" : "Need at least 2 sessions of this exercise to show a trend."}
                         </div>
                     )}
@@ -792,7 +828,7 @@ export const ReportsScreen: React.FC = () => {
 
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
-        
+
         const userMsg = input;
         setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
         setInput('');
@@ -803,7 +839,7 @@ export const ReportsScreen: React.FC = () => {
             const sessions = await DatabaseService.getSessions();
             const profile = await DatabaseService.getUserProfile();
             const weights = await DatabaseService.getWeightHistory();
-            
+
             // Summarize history to avoid token limits but keep detail
             // Group by Routine Name and Date
             const summarizedHistory = sessions.map(s => {
@@ -815,7 +851,7 @@ export const ReportsScreen: React.FC = () => {
             }).join('\n');
 
             const weightText = weights.length > 0 ? `Weight Log: ${weights.map(w => `${w.date}: ${w.weight}kg`).join('; ')}` : "No weight logs.";
-            
+
             const context = `
                 User Goal: ${profile.goal}
                 Target Weight: ${profile.targetWeight || 'Not set'}
@@ -827,7 +863,7 @@ export const ReportsScreen: React.FC = () => {
             `;
 
             const response = await GeminiService.chatWithData(userMsg, context);
-            
+
             setMessages(prev => [...prev, { role: 'model', text: response }]);
         } catch (e) {
             setMessages(prev => [...prev, { role: 'model', text: "Sorry, I couldn't connect to the server. Please try again." }]);
@@ -846,23 +882,21 @@ export const ReportsScreen: React.FC = () => {
         <div className="flex flex-col h-full max-h-[calc(100vh-80px)] p-4 pb-24 max-w-2xl mx-auto">
             {/* Header Tabs */}
             <div className="flex p-1 bg-gray-200 dark:bg-gray-800 rounded-xl mb-4 shrink-0">
-                <button 
+                <button
                     onClick={() => setView('analytics')}
-                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
-                        view === 'analytics' 
-                        ? 'bg-white dark:bg-dark-card shadow-sm text-gray-900 dark:text-white' 
+                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${view === 'analytics'
+                        ? 'bg-white dark:bg-dark-card shadow-sm text-gray-900 dark:text-white'
                         : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                    }`}
+                        }`}
                 >
                     Analytics
                 </button>
-                <button 
+                <button
                     onClick={() => setView('chat')}
-                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
-                        view === 'chat' 
-                        ? 'bg-white dark:bg-dark-card shadow-sm text-gray-900 dark:text-white' 
+                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${view === 'chat'
+                        ? 'bg-white dark:bg-dark-card shadow-sm text-gray-900 dark:text-white'
                         : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                    }`}
+                        }`}
                 >
                     AI Coach
                 </button>
@@ -877,11 +911,10 @@ export const ReportsScreen: React.FC = () => {
                         <div className="flex-1 space-y-4 mb-4 pr-2">
                             {messages.map((msg, i) => (
                                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[85%] p-4 rounded-2xl text-sm whitespace-pre-wrap ${
-                                        msg.role === 'user' 
-                                        ? 'bg-primary-600 text-white rounded-br-none' 
+                                    <div className={`max-w-[85%] p-4 rounded-2xl text-sm whitespace-pre-wrap ${msg.role === 'user'
+                                        ? 'bg-primary-600 text-white rounded-br-none'
                                         : 'bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-800 text-gray-800 dark:text-gray-200 rounded-bl-none shadow-sm'
-                                    }`}>
+                                        }`}>
                                         {msg.text}
                                     </div>
                                 </div>
@@ -901,14 +934,14 @@ export const ReportsScreen: React.FC = () => {
                         </div>
 
                         <div className="flex gap-2 shrink-0">
-                            <input 
+                            <input
                                 className="flex-1 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 rounded-full px-4 py-3 text-sm focus:ring-2 focus:ring-primary-500 outline-none dark:text-white"
                                 placeholder="Ask about progress, strength, etc..."
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                             />
-                            <button 
+                            <button
                                 onClick={handleSend}
                                 disabled={isLoading || !input.trim()}
                                 className="bg-primary-600 text-white w-12 h-12 rounded-full flex items-center justify-center hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-lg shadow-primary-500/30"
@@ -928,16 +961,17 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isAiModalOpen, setIsAiModalOpen] = useState(false);
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
-    
+    const [deleteId, setDeleteId] = useState<string | null>(null);
+
     // AI State
     const [aiPrompt, setAiPrompt] = useState("");
     const [isGenerating, setIsGenerating] = useState(false);
-    
+
     // Manual Creation/Edit State
     const [editingId, setEditingId] = useState<string | null>(null);
     const [newRoutineName, setNewRoutineName] = useState("");
-    const [newExercises, setNewExercises] = useState<{id?: string, name: string, muscle: string, target?: string}[]>([]);
-    
+    const [newExercises, setNewExercises] = useState<{ id?: string, name: string, muscle: string, target?: string }[]>([]);
+
     // UI State for Builder
     const [builderView, setBuilderView] = useState<'overview' | 'add_exercise'>('overview');
     const [exerciseSearch, setExerciseSearch] = useState("");
@@ -960,7 +994,7 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                     notes: e.notes
                 }))
             }));
-            
+
             for (const r of newRoutines) {
                 await DatabaseService.saveRoutine(r);
             }
@@ -1003,7 +1037,7 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
         await DatabaseService.saveRoutine(newRoutine);
         const all = await DatabaseService.getRoutines();
         onUpdateRoutines(all);
-        
+
         // Reset
         setIsCreateModalOpen(false);
         setEditingId(null);
@@ -1036,24 +1070,31 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
         setIsTemplateModalOpen(false);
     }
 
-    const handleDelete = async (id: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        if(confirm("Delete this routine?")) {
-            const originalRoutines = [...routines];
-            // Optimistic update
-            onUpdateRoutines(routines.filter(r => r.id !== id));
-            
-            const { error } = await DatabaseService.deleteRoutine(id);
-            if (error) {
-                alert("Failed to delete routine. Check permissions.");
-                onUpdateRoutines(originalRoutines); // Revert
-            }
+    const confirmDelete = async () => {
+        if (!deleteId) return;
+        const originalRoutines = [...routines];
+        onUpdateRoutines(routines.filter(r => r.id !== deleteId)); // Optimistic
+
+        try {
+            const { error } = await DatabaseService.deleteRoutine(deleteId);
+            if (error) throw error;
+        } catch (e) {
+            console.error(e);
+            alert("Failed to delete routine. Check permissions.");
+            onUpdateRoutines(originalRoutines); // Revert
+        } finally {
+            setDeleteId(null);
         }
-    }
+    };
+
+    const handleDeleteClick = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setDeleteId(id);
+    };
 
     const filteredExercises = () => {
-        let result: {name: string, muscle: string, target: string}[] = [];
-        
+        let result: { name: string, muscle: string, target: string }[] = [];
+
         // Flatten
         Object.entries(COMMON_EXERCISES).forEach(([muscle, exercises]) => {
             if (activeMuscleFilter === 'All' || activeMuscleFilter === muscle) {
@@ -1076,13 +1117,13 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
     return (
         <div className="p-4 pb-24 max-w-2xl mx-auto">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Workout Routines</h1>
-            
+
             <div className="grid gap-4 mb-6">
                 <Button onClick={() => { setEditingId(null); setNewRoutineName(""); setNewExercises([]); setBuilderView('overview'); setIsCreateModalOpen(true); }} className="w-full bg-gray-900 dark:bg-white dark:text-black hover:opacity-90 py-4">
                     <Plus className="mr-2" size={18} /> Create Custom Plan
                 </Button>
                 <div className="grid grid-cols-2 gap-4">
-                     <Button onClick={() => setIsTemplateModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white py-4" variant="primary">
+                    <Button onClick={() => setIsTemplateModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white py-4" variant="primary">
                         <BookOpen className="mr-2" size={18} /> Templates
                     </Button>
                     <Button onClick={() => setIsAiModalOpen(true)} className="bg-purple-600 hover:bg-purple-700 text-white py-4" variant="primary">
@@ -1090,11 +1131,11 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                     </Button>
                 </div>
             </div>
-            
+
             <div className="grid gap-4">
                 {routines.map(routine => (
                     <Card key={routine.id} className="p-4 relative group cursor-pointer hover:border-primary-500 transition-colors" onClick={() => handleEditRoutine(routine)}>
-                         <div className="flex justify-between items-start">
+                        <div className="flex justify-between items-start">
                             <div>
                                 <h3 className="font-bold text-lg dark:text-white flex items-center gap-2">
                                     {routine.name} <Edit2 size={12} className="opacity-50" />
@@ -1108,7 +1149,7 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                                     {routine.exercises.length > 4 && <span className="text-xs text-gray-400 py-1">+{routine.exercises.length - 4} more</span>}
                                 </div>
                             </div>
-                            <button onClick={(e) => handleDelete(routine.id, e)} className="p-2 text-gray-400 hover:text-red-500 z-10">
+                            <button onClick={(e) => handleDeleteClick(routine.id, e)} className="p-2 text-gray-400 hover:text-red-500 z-10">
                                 <Trash size={18} />
                             </button>
                         </div>
@@ -1120,22 +1161,22 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
             <Modal isOpen={isAiModalOpen} onClose={() => setIsAiModalOpen(false)} title="AI Routine Generator">
                 <div className="space-y-4">
                     <p className="text-sm text-gray-500">Describe your goal, and I'll build a full routine for you.</p>
-                    <textarea 
+                    <textarea
                         className="w-full h-32 p-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none resize-none"
                         placeholder="E.g. I want to build a bigger chest and arms. I have 3 days a week."
                         value={aiPrompt}
                         onChange={(e) => setAiPrompt(e.target.value)}
                     />
-                    <Button 
-                        onClick={handleAiGenerate} 
-                        isLoading={isGenerating} 
+                    <Button
+                        onClick={handleAiGenerate}
+                        isLoading={isGenerating}
                         className="w-full bg-purple-600 hover:bg-purple-700"
                     >
                         Generate Routine
                     </Button>
                 </div>
             </Modal>
-            
+
             {/* Templates Modal */}
             <Modal isOpen={isTemplateModalOpen} onClose={() => setIsTemplateModalOpen(false)} title="Workout Templates">
                 <div className="space-y-4">
@@ -1156,12 +1197,12 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
 
             {/* Manual Builder Modal - REDESIGNED */}
             <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} title={editingId ? "Edit Routine" : "Create Routine"}>
-                
+
                 {builderView === 'overview' ? (
                     // VIEW 1: OVERVIEW
                     <div className="space-y-6">
                         <div>
-                            <input 
+                            <input
                                 className="w-full bg-transparent border-b-2 border-gray-200 dark:border-gray-700 py-2 text-2xl font-bold text-gray-900 dark:text-white placeholder-gray-300 focus:border-primary-500 outline-none transition-colors"
                                 placeholder="Routine Name (e.g. Chest Day)"
                                 value={newRoutineName}
@@ -1182,7 +1223,7 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                                         <div className="flex items-center gap-3 flex-1 mr-4">
                                             <span className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-500 shrink-0">{i + 1}</span>
                                             <div className="flex-1">
-                                                <input 
+                                                <input
                                                     className="font-bold text-gray-900 dark:text-white bg-transparent border-b border-transparent hover:border-gray-300 focus:border-primary-500 outline-none w-full"
                                                     value={ex.name}
                                                     onChange={(e) => updateExerciseName(i, e.target.value)}
@@ -1203,7 +1244,7 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                                 ))
                             )}
 
-                            <button 
+                            <button
                                 onClick={() => setBuilderView('add_exercise')}
                                 className="w-full py-4 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl text-gray-500 font-bold hover:border-primary-500 hover:text-primary-500 transition-colors flex items-center justify-center gap-2"
                             >
@@ -1212,9 +1253,9 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                         </div>
 
                         <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
-                            <Button 
-                                onClick={handleManualSave} 
-                                className="w-full py-3 text-lg font-bold" 
+                            <Button
+                                onClick={handleManualSave}
+                                className="w-full py-3 text-lg font-bold"
                                 disabled={!newRoutineName || newExercises.length === 0}
                             >
                                 Save Routine
@@ -1230,7 +1271,7 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                             </button>
                             <div className="relative flex-1">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                                <input 
+                                <input
                                     className="w-full pl-9 pr-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border-transparent focus:bg-white dark:focus:bg-dark-card focus:ring-2 focus:ring-primary-500 outline-none text-sm dark:text-white"
                                     placeholder="Search exercise..."
                                     value={exerciseSearch}
@@ -1246,11 +1287,10 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                                 <button
                                     key={m}
                                     onClick={() => setActiveMuscleFilter(m)}
-                                    className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${
-                                        activeMuscleFilter === m 
-                                        ? 'bg-primary-600 text-white' 
+                                    className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${activeMuscleFilter === m
+                                        ? 'bg-primary-600 text-white'
                                         : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
-                                    }`}
+                                        }`}
                                 >
                                     {m}
                                 </button>
@@ -1262,8 +1302,8 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                             {filteredExercises().length === 0 ? (
                                 <div className="text-center py-8">
                                     <p className="text-gray-500 text-sm mb-3">No exercises found.</p>
-                                    <Button 
-                                        size="sm" 
+                                    <Button
+                                        size="sm"
                                         variant="secondary"
                                         onClick={() => addQuickExercise(exerciseSearch, "Custom", "General")}
                                     >
@@ -1272,7 +1312,7 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                                 </div>
                             ) : (
                                 filteredExercises().map((ex, i) => (
-                                    <button 
+                                    <button
                                         key={i}
                                         onClick={() => addQuickExercise(ex.name, ex.muscle, ex.target)}
                                         className="w-full text-left p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex justify-between items-center group transition-colors border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
@@ -1295,12 +1335,24 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                 )}
 
             </Modal>
+
+            <ConfirmationModal
+                isOpen={!!deleteId}
+                onClose={() => setDeleteId(null)}
+                onConfirm={confirmDelete}
+                title="Delete Routine?"
+                message="This will delete the routine template. Past workout history will not be affected."
+                confirmText="Delete"
+                variant="danger"
+            />
         </div>
     );
 };
 
 export const SettingsScreen: React.FC = () => {
     const [profile, setProfile] = useState<UserProfile>({ goal: 'general', targetWeight: 0, height: 0 });
+    const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+    const [isClearCacheModalOpen, setIsClearCacheModalOpen] = useState(false);
 
     useEffect(() => {
         DatabaseService.getUserProfile().then(setProfile);
@@ -1308,7 +1360,12 @@ export const SettingsScreen: React.FC = () => {
 
     const saveProfile = async () => {
         await DatabaseService.saveUserProfile(profile);
-        alert("Profile Updated");
+        setIsSaveModalOpen(true);
+    }
+
+    const handleClearCache = () => {
+        localStorage.clear();
+        window.location.reload();
     }
 
     const toggleTheme = () => {
@@ -1321,16 +1378,16 @@ export const SettingsScreen: React.FC = () => {
     return (
         <div className="p-4 max-w-2xl mx-auto pb-24">
             <h1 className="text-2xl font-bold mb-6 text-gray-900 dark:text-white">Settings</h1>
-            
+
             <div className="bg-white dark:bg-dark-card rounded-xl border border-gray-100 dark:border-gray-800 p-4 mb-6">
                 <h3 className="font-bold text-lg mb-4 dark:text-white flex items-center gap-2"><UserCircle size={20} /> Fitness Profile</h3>
                 <div className="space-y-4">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Primary Goal</label>
-                        <select 
+                        <select
                             className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 dark:text-white"
                             value={profile.goal}
-                            onChange={(e) => setProfile({...profile, goal: e.target.value as any})}
+                            onChange={(e) => setProfile({ ...profile, goal: e.target.value as any })}
                         >
                             <option value="hypertrophy">Build Muscle (Hypertrophy)</option>
                             <option value="strength">Increase Strength</option>
@@ -1342,21 +1399,21 @@ export const SettingsScreen: React.FC = () => {
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Height (cm)</label>
-                            <input 
-                                type="number" 
+                            <input
+                                type="number"
                                 className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 dark:text-white"
                                 placeholder="180"
                                 value={profile.height || ''}
-                                onChange={(e) => setProfile({...profile, height: parseFloat(e.target.value)})}
+                                onChange={(e) => setProfile({ ...profile, height: parseFloat(e.target.value) })}
                             />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Target Weight (kg)</label>
-                            <input 
-                                type="number" 
+                            <input
+                                type="number"
                                 className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 dark:text-white"
                                 value={profile.targetWeight || ''}
-                                onChange={(e) => setProfile({...profile, targetWeight: parseFloat(e.target.value)})}
+                                onChange={(e) => setProfile({ ...profile, targetWeight: parseFloat(e.target.value) })}
                             />
                         </div>
                     </div>
@@ -1364,56 +1421,56 @@ export const SettingsScreen: React.FC = () => {
             </div>
 
             <div className="bg-white dark:bg-dark-card rounded-xl border border-gray-100 dark:border-gray-800 p-4 mb-6">
-                <h3 className="font-bold text-lg mb-4 dark:text-white flex items-center gap-2"><Flame size={20} className="text-orange-500"/> Nutrition Goals</h3>
+                <h3 className="font-bold text-lg mb-4 dark:text-white flex items-center gap-2"><Flame size={20} className="text-orange-500" /> Nutrition Goals</h3>
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Daily Calories</label>
-                            <input 
-                                type="number" 
+                            <input
+                                type="number"
                                 className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 dark:text-white"
                                 placeholder="2500"
                                 value={profile.calorieGoal || ''}
-                                onChange={(e) => setProfile({...profile, calorieGoal: parseFloat(e.target.value)})}
+                                onChange={(e) => setProfile({ ...profile, calorieGoal: parseFloat(e.target.value) })}
                             />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Water Goal (ml)</label>
-                            <input 
-                                type="number" 
+                            <input
+                                type="number"
                                 className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 dark:text-white"
                                 placeholder="3000"
                                 value={profile.waterGoal || ''}
-                                onChange={(e) => setProfile({...profile, waterGoal: parseFloat(e.target.value)})}
+                                onChange={(e) => setProfile({ ...profile, waterGoal: parseFloat(e.target.value) })}
                             />
                         </div>
                     </div>
                     <div className="grid grid-cols-3 gap-2">
-                         <div>
+                        <div>
                             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Protein (g)</label>
-                            <input 
-                                type="number" 
+                            <input
+                                type="number"
                                 className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 dark:text-white"
                                 value={profile.proteinGoal || ''}
-                                onChange={(e) => setProfile({...profile, proteinGoal: parseFloat(e.target.value)})}
+                                onChange={(e) => setProfile({ ...profile, proteinGoal: parseFloat(e.target.value) })}
                             />
                         </div>
-                         <div>
+                        <div>
                             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Carbs (g)</label>
-                            <input 
-                                type="number" 
+                            <input
+                                type="number"
                                 className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 dark:text-white"
                                 value={profile.carbsGoal || ''}
-                                onChange={(e) => setProfile({...profile, carbsGoal: parseFloat(e.target.value)})}
+                                onChange={(e) => setProfile({ ...profile, carbsGoal: parseFloat(e.target.value) })}
                             />
                         </div>
-                         <div>
+                        <div>
                             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Fats (g)</label>
-                            <input 
-                                type="number" 
+                            <input
+                                type="number"
                                 className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 dark:text-white"
                                 value={profile.fatsGoal || ''}
-                                onChange={(e) => setProfile({...profile, fatsGoal: parseFloat(e.target.value)})}
+                                onChange={(e) => setProfile({ ...profile, fatsGoal: parseFloat(e.target.value) })}
                             />
                         </div>
                     </div>
@@ -1431,9 +1488,29 @@ export const SettingsScreen: React.FC = () => {
                 </div>
                 <div className="p-4 flex justify-between items-center">
                     <span className="font-medium text-gray-700 dark:text-gray-200">Local Cache</span>
-                    <button onClick={() => { if(confirm("Clear local cache? This does not delete Supabase data.")) { localStorage.clear(); window.location.reload(); } }} className="text-red-500 text-sm font-bold">CLEAR</button>
+                    <button onClick={() => setIsClearCacheModalOpen(true)} className="text-red-500 text-sm font-bold">CLEAR</button>
                 </div>
             </div>
+
+            <ConfirmationModal
+                isOpen={isSaveModalOpen}
+                onClose={() => setIsSaveModalOpen(false)}
+                onConfirm={() => setIsSaveModalOpen(false)}
+                title="Profile Saved"
+                message="Your settings have been successfully updated."
+                confirmText="OK"
+                showCancel={false}
+            />
+
+            <ConfirmationModal
+                isOpen={isClearCacheModalOpen}
+                onClose={() => setIsClearCacheModalOpen(false)}
+                onConfirm={handleClearCache}
+                title="Clear Local Cache?"
+                message="This will reset your local app state. Your data saved to the cloud (Supabase) will be safe."
+                confirmText="Clear & Reload"
+                variant="danger"
+            />
         </div>
     )
 }
