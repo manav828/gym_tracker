@@ -4,114 +4,11 @@ import { DatabaseService } from '../services/databaseService';
 import { GeminiService } from '../services/geminiService';
 import { Button, Card, Modal, Input, ConfirmationModal } from './Shared';
 import { NutritionDashboard } from './Nutrition';
-import { Calendar as CalendarIcon, Activity, Plus, Play, Trash, BarChart as BarChartIcon, Sparkles, Send, Edit2, UserCircle, Scale, ChevronLeft, ChevronRight, Search, BookOpen, Copy, ArrowLeft, X, Ruler, TrendingUp, Info, Flame, Droplets } from 'lucide-react';
+import { Calendar as CalendarIcon, Activity, Plus, Play, Trash, BarChart as BarChartIcon, Sparkles, Send, Edit2, UserCircle, Scale, ChevronLeft, ChevronRight, Search, BookOpen, Copy, ArrowLeft, X, Ruler, TrendingUp, Info, Flame, Droplets, ChevronDown, ChevronUp } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 // --- Constants ---
-interface ExerciseDetail {
-    name: string;
-    target: string;
-}
-
-const COMMON_EXERCISES: Record<string, ExerciseDetail[]> = {
-    'Chest': [
-        { name: 'Bench Press', target: 'Middle Chest (Overall Mass)' },
-        { name: 'Incline Barbell Press', target: 'Upper Chest' },
-        { name: 'Decline Barbell Press', target: 'Lower Chest' },
-        { name: 'Dumbbell Bench Press', target: 'Middle Chest (Stabilization)' },
-        { name: 'Incline Dumbbell Press', target: 'Upper Chest' },
-        { name: 'Decline Dumbbell Press', target: 'Lower Chest' },
-        { name: 'Chest Fly (Dumbbell)', target: 'Inner/Outer Chest (Stretch)' },
-        { name: 'Cable Crossover', target: 'Lower/Inner Chest' },
-        { name: 'Pec Deck Machine', target: 'Inner Chest (Isolation)' },
-        { name: 'Push Ups', target: 'General Chest & Core' },
-        { name: 'Weighted Push Ups', target: 'General Chest' },
-        { name: 'Dips (Chest Focus)', target: 'Lower Chest' },
-        { name: 'Landmine Press', target: 'Upper/Inner Chest' }
-    ],
-    'Back': [
-        { name: 'Pull Ups', target: 'Lats (Width)' },
-        { name: 'Chin Ups', target: 'Lats & Biceps' },
-        { name: 'Lat Pulldown (Wide)', target: 'Upper Lats (Width)' },
-        { name: 'Lat Pulldown (Close)', target: 'Lower Lats' },
-        { name: 'Barbell Row', target: 'Mid Back (Thickness)' },
-        { name: 'Pendlay Row', target: 'Upper Back/Lats (Power)' },
-        { name: 'Dumbbell Row', target: 'Lats (Unilateral)' },
-        { name: 'Seated Cable Row', target: 'Mid Back/Rhomboids' },
-        { name: 'Deadlift', target: 'Entire Posterior Chain' },
-        { name: 'Rack Pulls', target: 'Upper Back/Traps' },
-        { name: 'T-Bar Row', target: 'Mid Back thickness' },
-        { name: 'Face Pulls', target: 'Rear Delts & Rotator Cuff' },
-        { name: 'Straight Arm Pulldown', target: 'Lats (Isolation)' },
-        { name: 'Shrugs', target: 'Upper Traps' }
-    ],
-    'Legs': [
-        { name: 'Squat (Back)', target: 'Quads & Glutes (Overall)' },
-        { name: 'Squat (Front)', target: 'Quads (Anterior)' },
-        { name: 'Leg Press', target: 'Quads/Glutes (Heavy Load)' },
-        { name: 'Hack Squat', target: 'Quads (Isolation focus)' },
-        { name: 'Romanian Deadlift', target: 'Hamstrings & Glutes' },
-        { name: 'Stiff Leg Deadlift', target: 'Hamstrings (Stretch)' },
-        { name: 'Walking Lunges', target: 'Glutes & Quads (Unilateral)' },
-        { name: 'Bulgarian Split Squat', target: 'Glutes & Quads (Balance)' },
-        { name: 'Leg Extension', target: 'Quads (Isolation)' },
-        { name: 'Leg Curl (Seated)', target: 'Hamstrings' },
-        { name: 'Leg Curl (Lying)', target: 'Hamstrings' },
-        { name: 'Calf Raises (Standing)', target: 'Calves (Gastrocnemius)' },
-        { name: 'Calf Raises (Seated)', target: 'Calves (Soleus)' },
-        { name: 'Hip Thrust', target: 'Glutes (Max Contraction)' }
-    ],
-    'Shoulders': [
-        { name: 'Overhead Press (Barbell)', target: 'Front Delts (Power)' },
-        { name: 'Overhead Press (Dumbbell)', target: 'Front Delts (Stability)' },
-        { name: 'Arnold Press', target: 'All Delt Heads' },
-        { name: 'Seated Dumbbell Press', target: 'Front/Side Delts' },
-        { name: 'Lateral Raises', target: 'Side Delts (Width)' },
-        { name: 'Front Raises', target: 'Front Delts' },
-        { name: 'Rear Delt Fly', target: 'Rear Delts' },
-        { name: 'Upright Row', target: 'Side Delts & Traps' },
-        { name: 'Cable Lateral Raise', target: 'Side Delts (Constant Tension)' }
-    ],
-    'Biceps': [
-        { name: 'Barbell Curl', target: 'Biceps (Overall Mass)' },
-        { name: 'Dumbbell Curl', target: 'Biceps (Supination)' },
-        { name: 'Hammer Curl', target: 'Brachialis (Width/Forearm)' },
-        { name: 'Preacher Curl', target: 'Short Head (Peak)' },
-        { name: 'Concentration Curl', target: 'Biceps (Isolation)' },
-        { name: 'Incline Dumbbell Curl', target: 'Long Head (Stretch)' },
-        { name: 'EZ Bar Curl', target: 'Biceps (Wrist Comfort)' }
-    ],
-    'Triceps': [
-        { name: 'Tricep Pushdown (Rope)', target: 'Lateral Head' },
-        { name: 'Tricep Pushdown (Bar)', target: 'Long Head' },
-        { name: 'Skullcrushers', target: 'Medial/Long Head' },
-        { name: 'Overhead Ext (Dumbbell)', target: 'Long Head (Stretch)' },
-        { name: 'Overhead Ext (Cable)', target: 'Long Head (Stretch)' },
-        { name: 'Close Grip Bench', target: 'Triceps (Mass)' },
-        { name: 'Dips', target: 'Triceps (Overall)' },
-        { name: 'Kickbacks', target: 'Triceps (Contraction)' }
-    ],
-    'Core': [
-        { name: 'Plank', target: 'Core Stability' },
-        { name: 'Side Plank', target: 'Obliques' },
-        { name: 'Crunches', target: 'Upper Abs' },
-        { name: 'Leg Raises', target: 'Lower Abs' },
-        { name: 'Hanging Leg Raises', target: 'Lower Abs (Decompressed)' },
-        { name: 'Russian Twists', target: 'Obliques' },
-        { name: 'Ab Wheel Rollout', target: 'Deep Core/Lats' },
-        { name: 'Mountain Climbers', target: 'Core & Cardio' },
-        { name: 'Cable Woodchopper', target: 'Obliques (Rotational)' }
-    ],
-    'Cardio': [
-        { name: 'Treadmill Run', target: 'Endurance' },
-        { name: 'Cycling', target: 'Leg Endurance' },
-        { name: 'Elliptical', target: 'Low Impact' },
-        { name: 'Rowing Machine', target: 'Full Body Endurance' },
-        { name: 'Jump Rope', target: 'Coordination & Calves' },
-        { name: 'HIIT Sprints', target: 'Fat Loss (Anaerobic)' },
-        { name: 'Burpees', target: 'Full Body Conditioning' }
-    ]
-};
+import { COMMON_EXERCISES, ExerciseDetail } from './exercisesData';
 
 const PREDEFINED_TEMPLATES = [
     {
@@ -392,11 +289,12 @@ export const HomeScreen: React.FC<{
 };
 
 // --- Calendar/History Screen ---
-export const CalendarScreen: React.FC = () => {
+export const CalendarScreen: React.FC<{ onEditSession: (session: WorkoutSession) => void }> = ({ onEditSession }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [sessions, setSessions] = useState<WorkoutSession[]>([]);
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
     const [deleteId, setDeleteId] = useState<string | null>(null);
+    const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchSessions = async () => {
@@ -510,30 +408,65 @@ export const CalendarScreen: React.FC = () => {
                 </div>
             ) : (
                 <div className="space-y-4">
-                    {displayedSessions.map(session => (
-                        <div key={session.id} className="relative pl-6 border-l-2 border-gray-200 dark:border-gray-800 pb-6 last:pb-0">
-                            <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-primary-500 border-4 border-white dark:border-dark-bg"></div>
-                            <div className="mb-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                                {new Date(session.startTime).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                            <Card className="p-0 overflow-hidden">
-                                <div className="p-4 flex justify-between items-start">
-                                    <div>
-                                        <h3 className="font-bold text-gray-900 dark:text-white">{session.routineName}</h3>
-                                        <div className="flex gap-4 mt-2 text-sm text-gray-600 dark:text-gray-400">
-                                            <span>⏱ {Math.floor(session.durationSeconds / 60)}m</span>
-                                            <span>⚖️ {session.totalVolume}kg</span>
+                    {displayedSessions.map(session => {
+                        const isExpanded = expandedSessionId === session.id;
+                        return (
+                            <div key={session.id} className="relative pl-6 border-l-2 border-gray-200 dark:border-gray-800 pb-6 last:pb-0">
+                                <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-primary-500 border-4 border-white dark:border-dark-bg"></div>
+                                <div className="mb-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                    {new Date(session.startTime).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                                <Card className={`p-0 overflow-hidden transition-all duration-300 ${isExpanded ? 'ring-2 ring-primary-500' : ''}`} onClick={() => setExpandedSessionId(isExpanded ? null : session.id)}>
+                                    <div className="p-4 flex justify-between items-start cursor-pointer">
+                                        <div>
+                                            <h3 className="font-bold text-gray-900 dark:text-white">{session.routineName}</h3>
+                                            <div className="flex gap-4 mt-2 text-sm text-gray-600 dark:text-gray-400">
+                                                <span>⏱ {Math.floor(session.durationSeconds / 60)}m</span>
+                                                <span>⚖️ {session.totalVolume}kg</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {isExpanded ? <ChevronUp size={20} className="text-gray-400" /> : <ChevronDown size={20} className="text-gray-400" />}
+                                            {isExpanded && (
+                                                <button onClick={(e) => { e.stopPropagation(); onEditSession(session); }} className="text-gray-400 hover:text-blue-500 p-2 z-10 transition-colors">
+                                                    <Edit2 size={16} />
+                                                </button>
+                                            )}
+                                            <button onClick={(e) => handleDeleteClick(session.id, e)} className="text-gray-400 hover:text-red-500 p-2 z-10"><Trash size={16} /></button>
                                         </div>
                                     </div>
-                                    <button onClick={(e) => handleDeleteClick(session.id, e)} className="text-gray-400 hover:text-red-500 p-2 z-10"><Trash size={16} /></button>
-                                </div>
-                                {session.bodyWeight && <div className="px-4 text-xs text-purple-500 font-semibold mb-2">Body Weight: {session.bodyWeight}kg</div>}
-                                <div className="bg-gray-50 dark:bg-dark-bg/50 px-4 py-2 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500">
-                                    {session.exercises.length} Exercises Completed
-                                </div>
-                            </Card>
-                        </div>
-                    ))}
+
+                                    {session.bodyWeight && <div className="px-4 text-xs text-purple-500 font-semibold mb-2">Body Weight: {session.bodyWeight}kg</div>}
+
+                                    {isExpanded && (
+                                        <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                                            <div className="border-t border-gray-100 dark:border-gray-800 pt-3 space-y-3">
+                                                {session.exercises.map((ex, i) => (
+                                                    <div key={i} className="text-sm">
+                                                        <div className="font-bold text-gray-800 dark:text-gray-200 mb-1">{ex.name}</div>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {ex.sets.filter(s => s.completed).map((set, j) => (
+                                                                <span key={j} className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded text-xs font-mono">
+                                                                    {set.weight}kg x {set.reps}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {!isExpanded && (
+                                        <div className="bg-gray-50 dark:bg-dark-bg/50 px-4 py-2 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500 flex justify-between items-center">
+                                            <span>{session.exercises.length} Exercises Completed</span>
+                                            <span className="text-primary-500 font-medium">View Details</span>
+                                        </div>
+                                    )}
+                                </Card>
+                            </div>
+                        );
+                    })}
                 </div>
             )}
 

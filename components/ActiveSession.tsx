@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WorkoutSession, Set, Routine } from '../types';
 import { DatabaseService } from '../services/databaseService';
-import { Button, Input, Card, ConfirmationModal } from './Shared';
+import { Button, Input, Card, ConfirmationModal, Modal } from './Shared';
 import { Timer, Check, Plus, Trash2, Video, History, Scale, TrendingUp, ChevronLeft, X, Play, Pause } from 'lucide-react';
+import { COMMON_EXERCISES } from './exercisesData';
 
 interface ActiveSessionProps {
     routine: Routine;
@@ -10,9 +11,10 @@ interface ActiveSessionProps {
     onBack: () => void;
     existingSession: WorkoutSession | null;
     onSessionUpdate: (session: WorkoutSession) => void;
+    isHistory?: boolean;
 }
 
-export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish, onBack, existingSession, onSessionUpdate }) => {
+export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish, onBack, existingSession, onSessionUpdate, isHistory = false }) => {
     const [session, setSession] = useState<WorkoutSession>(() => {
         if (existingSession) {
             // If resuming an already paused session, ensure state reflects it
@@ -46,6 +48,25 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
     const [bodyWeight, setBodyWeight] = useState<string>('');
     const [isDiscardModalOpen, setIsDiscardModalOpen] = useState(false);
 
+    // Add Exercise State
+    const [isAddExerciseModalOpen, setIsAddExerciseModalOpen] = useState(false);
+    const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
+    const [customExerciseName, setCustomExerciseName] = useState('');
+
+    const handleAddExercise = (exerciseName: string) => {
+        const newExercise = {
+            exerciseId: crypto.randomUUID(), // New ID
+            name: exerciseName,
+            sets: [],
+            notes: ''
+        };
+        const updatedExercises = [...session.exercises, newExercise];
+        setSession({ ...session, exercises: updatedExercises });
+        setActiveExerciseIndex(updatedExercises.length - 1); // Switch to new
+        setIsAddExerciseModalOpen(false);
+        setSelectedMuscle(null);
+    };
+
     const timerIntervalRef = useRef<number | null>(null);
     const sessionTimerRef = useRef<number | null>(null);
 
@@ -66,6 +87,9 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
 
     // Session Timer Logic (Wall-Clock Based)
     useEffect(() => {
+        // If history mode, do NOT run timer
+        if (isHistory) return;
+
         // If currently paused, do not increment timer
         if (isPaused) {
             if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
@@ -91,13 +115,15 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
         return () => {
             if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
         };
-    }, [isPaused]);
+    }, [isPaused, isHistory]);
 
     // Save to local storage on every change
     useEffect(() => {
-        DatabaseService.saveActiveSession(session);
+        if (!isHistory) {
+            DatabaseService.saveActiveSession(session);
+        }
         onSessionUpdate(session);
-    }, [session]);
+    }, [session, isHistory]);
 
     // Toggle Pause Handler
     const togglePause = () => {
@@ -153,23 +179,9 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
     const handleAddSet = (exerciseIndex: number) => {
         const updatedExercises = [...session.exercises];
 
-        // Logic: Copy previous set in current session, OR copy set from Last Session
-        const currentPrevSet = updatedExercises[exerciseIndex].sets[updatedExercises[exerciseIndex].sets.length - 1];
-
-        // If no sets yet, try to find from history
-        let suggestedWeight = 0;
-        let suggestedReps = 0;
-
-        if (currentPrevSet) {
-            suggestedWeight = currentPrevSet.weight;
-            suggestedReps = currentPrevSet.reps;
-        } else if (prevSession) {
-            const prevEx = prevSession.exercises.find(e => e.exerciseId === session.exercises[exerciseIndex].exerciseId);
-            if (prevEx && prevEx.sets.length > 0) {
-                suggestedWeight = prevEx.sets[0].weight;
-                suggestedReps = prevEx.sets[0].reps;
-            }
-        }
+        // New Requirement: Always start empty
+        const suggestedWeight = 0;
+        const suggestedReps = 0;
 
         const newSet: Set = {
             id: crypto.randomUUID(),
@@ -205,32 +217,41 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
     }
 
     const finishSession = async () => {
-        // 1. Calculate Volume
-        let vol = 0;
-        session.exercises.forEach(ex => {
-            ex.sets.forEach(s => {
-                if (s.completed) vol += (s.weight * s.reps);
+        try {
+            // 1. Calculate Volume
+            let vol = 0;
+            session.exercises.forEach(ex => {
+                ex.sets.forEach(s => {
+                    if (s.completed) vol += (s.weight * s.reps);
+                });
             });
-        });
 
-        // 2. Prepare Data
-        const finalSession = {
-            ...session,
-            endTime: Date.now(),
-            totalVolume: vol,
-            bodyWeight: bodyWeight ? parseFloat(bodyWeight) : undefined
-        };
+            // 2. Prepare Data
+            const finalSession = {
+                ...session,
+                // If history, keep original endTime. If active, set to now.
+                endTime: isHistory ? session.endTime : Date.now(),
+                totalVolume: Math.round(vol), // Ensure integer for DB
+                bodyWeight: bodyWeight ? parseFloat(bodyWeight) : undefined
+            };
 
-        // 3. Save Session
-        await DatabaseService.saveSession(finalSession);
+            // 3. Save Session
+            const { error } = await DatabaseService.saveSession(finalSession);
+            if (error) throw error; // Handle Supabase error object
 
-        // 4. Also log weight to measurements table if provided
-        if (bodyWeight) {
-            await DatabaseService.logWeight(parseFloat(bodyWeight), finalSession.date);
+            // 4. Also log weight to measurements table if provided (skip if history to avoid double logging old weights)
+            if (bodyWeight && !isHistory) {
+                await DatabaseService.logWeight(parseFloat(bodyWeight), finalSession.date);
+            }
+
+            if (!isHistory) {
+                DatabaseService.saveActiveSession(null);
+            }
+            onFinish();
+        } catch (err: any) {
+            console.error("Failed to save session:", err);
+            alert(`Failed to save workout: ${err.message || 'Unknown error'}. Please check your internet connection.`);
         }
-
-        DatabaseService.saveActiveSession(null);
-        onFinish();
     };
 
     const currentExercise = session.exercises[activeExerciseIndex];
@@ -248,30 +269,40 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                     <div>
                         <h2 className="font-bold text-gray-900 dark:text-white leading-tight">{routine.name}</h2>
                         <div className="text-xs text-gray-500 font-mono flex items-center gap-2">
-                            {formatTime(session.durationSeconds)}
-                            {isPaused && <span className="text-yellow-500 font-bold px-1 rounded bg-yellow-100 dark:bg-yellow-900/30">PAUSED</span>}
+                            {isHistory ? (
+                                <span className="text-orange-500 font-bold">EDITING HISTORY</span>
+                            ) : (
+                                <>
+                                    {formatTime(session.durationSeconds)}
+                                    {isPaused && <span className="text-yellow-500 font-bold px-1 rounded bg-yellow-100 dark:bg-yellow-900/30">PAUSED</span>}
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={togglePause} className={`p-2 rounded-full ${isPaused ? 'text-green-500 bg-green-50' : 'text-gray-500 bg-gray-50'}`}>
-                        {isPaused ? <Play size={20} fill="currentColor" /> : <Pause size={20} fill="currentColor" />}
-                    </button>
+                    {!isHistory && (
+                        <>
+                            <button onClick={togglePause} className={`p-2 rounded-full ${isPaused ? 'text-green-500 bg-green-50' : 'text-gray-500 bg-gray-50'}`}>
+                                {isPaused ? <Play size={20} fill="currentColor" /> : <Pause size={20} fill="currentColor" />}
+                            </button>
 
-                    <button onClick={() => setIsDiscardModalOpen(true)} className="p-2 text-red-500 hover:bg-red-50 rounded-full">
-                        <X size={20} />
-                    </button>
+                            <button onClick={() => setIsDiscardModalOpen(true)} className="p-2 text-red-500 hover:bg-red-50 rounded-full">
+                                <X size={20} />
+                            </button>
 
-                    {isResting ? (
-                        <div className="bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1 animate-pulse" onClick={() => setIsResting(false)}>
-                            <Timer size={14} /> {formatTime(restTimer)}
-                        </div>
-                    ) : (
-                        <button onClick={() => { setRestTimer(60); setIsResting(true); }} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-dark-card text-gray-500">
-                            <Timer size={20} />
-                        </button>
+                            {isResting ? (
+                                <div className="bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1 animate-pulse" onClick={() => setIsResting(false)}>
+                                    <Timer size={14} /> {formatTime(restTimer)}
+                                </div>
+                            ) : (
+                                <button onClick={() => { setRestTimer(60); setIsResting(true); }} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-dark-card text-gray-500">
+                                    <Timer size={20} />
+                                </button>
+                            )}
+                        </>
                     )}
-                    <Button size="sm" onClick={finishSession} className="bg-green-600 hover:bg-green-700">Finish</Button>
+                    <Button size="sm" onClick={finishSession} className="bg-green-600 hover:bg-green-700">{isHistory ? 'Save Changes' : 'Finish'}</Button>
                 </div>
             </div>
 
@@ -292,6 +323,12 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                             {ex.sets.filter(s => s.completed).length > 0 && <span className="ml-1 opacity-70">({ex.sets.filter(s => s.completed).length})</span>}
                         </button>
                     ))}
+                    <button
+                        onClick={() => setIsAddExerciseModalOpen(true)}
+                        className="flex-shrink-0 px-3 py-2 rounded-full text-xs font-bold whitespace-nowrap bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-400 border border-transparent hover:bg-primary-200 dark:hover:bg-primary-900/60 transition-colors"
+                    >
+                        <Plus size={14} className="inline mr-1" /> Add Exercise
+                    </button>
                 </div>
 
                 {/* Active Exercise Card */}
@@ -464,6 +501,76 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                 confirmText="Stop & Save Draft"
                 variant="danger"
             />
+
+            {/* Add Exercise Modal */}
+            <Modal isOpen={isAddExerciseModalOpen} onClose={() => setIsAddExerciseModalOpen(false)} title="Add Exercise">
+                <div className="h-[60vh] overflow-y-auto">
+                    {/* Custom Exercise Input */}
+                    <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
+                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Can't find it? Add Custom</label>
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                placeholder="Exercise Name..."
+                                className="flex-1 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                                value={customExerciseName}
+                                onChange={(e) => setCustomExerciseName(e.target.value)}
+                            />
+                            <Button
+                                size="sm"
+                                disabled={!customExerciseName.trim()}
+                                onClick={() => {
+                                    if (customExerciseName.trim()) {
+                                        handleAddExercise(customExerciseName.trim());
+                                        setCustomExerciseName('');
+                                    }
+                                }}
+                            >
+                                Add
+                            </Button>
+                        </div>
+                    </div>
+
+                    {!selectedMuscle ? (
+                        <div className="grid grid-cols-2 gap-3">
+                            {Object.keys(COMMON_EXERCISES).map(muscle => (
+                                <button
+                                    key={muscle}
+                                    onClick={() => setSelectedMuscle(muscle)}
+                                    className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl hover:bg-primary-50 dark:hover:bg-gray-700 text-center font-bold text-gray-700 dark:text-gray-200 border border-gray-100 dark:border-gray-700 hover:border-primary-200 transition-all"
+                                >
+                                    {muscle}
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <div>
+                            <button
+                                onClick={() => setSelectedMuscle(null)}
+                                className="mb-4 flex items-center gap-1 text-sm text-gray-500 hover:text-primary-500"
+                            >
+                                <ChevronLeft size={16} /> Back to Categories
+                            </button>
+                            <h3 className="font-bold text-lg mb-3 text-gray-900 dark:text-white">{selectedMuscle}</h3>
+                            <div className="space-y-2">
+                                {COMMON_EXERCISES[selectedMuscle].map(ex => (
+                                    <button
+                                        key={ex.name}
+                                        onClick={() => handleAddExercise(ex.name)}
+                                        className="w-full text-left p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex justify-between items-center group"
+                                    >
+                                        <div>
+                                            <div className="font-semibold text-gray-800 dark:text-gray-200">{ex.name}</div>
+                                            <div className="text-xs text-gray-400">{ex.target}</div>
+                                        </div>
+                                        <Plus size={18} className="text-gray-300 group-hover:text-primary-500" />
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </Modal>
         </div>
     );
 };

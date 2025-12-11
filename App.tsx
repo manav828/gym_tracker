@@ -27,6 +27,9 @@ function AppContent() {
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
   const [activeRoutine, setActiveRoutine] = useState<Routine | null>(null);
 
+  // History Editing State
+  const [editingSession, setEditingSession] = useState<WorkoutSession | null>(null);
+
   // Resume Abandoned Session State
   const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
   const [abandonedSessionToResume, setAbandonedSessionToResume] = useState<WorkoutSession | null>(null);
@@ -219,8 +222,36 @@ function AppContent() {
   const handleFinishWorkout = () => {
     setActiveSession(null);
     setActiveRoutine(null);
+    setEditingSession(null); // Also clear editing state
     setCurrentRoute('home');
     window.location.hash = 'home';
+  };
+
+  const handleEditHistory = (session: WorkoutSession) => {
+    // 1. Find the routine content (to get muscle groups/videos/etc)
+    // Even if routine doesn't exist anymore, we can try to reconstruct a partial one,
+    // but better to find the original if possible.
+    let routine = routines.find(r => r.id === session.routineId);
+
+    if (!routine) {
+      // Fallback if routine deleted: create a dummy wrapper so ActiveSession can render
+      routine = {
+        id: session.routineId,
+        name: session.routineName,
+        exercises: session.exercises.map(e => ({
+          id: e.exerciseId,
+          name: e.name,
+          muscleGroup: 'Unknown', // We lost this metadata if routine deleted
+          sets: 3,
+          reps: 10
+        }))
+      };
+    }
+
+    setActiveRoutine(routine); // ActiveSession needs this context
+    setEditingSession(session);
+    setCurrentRoute('edit-workout');
+    window.location.hash = 'edit-workout';
   };
 
   const FloatingSessionBar = () => {
@@ -313,13 +344,22 @@ function AppContent() {
             onBack={handleMinimizeWorkout}
             onSessionUpdate={setActiveSession}
           />
+        ) : currentRoute === 'edit-workout' && activeRoutine && editingSession ? (
+          <ActiveSession
+            routine={activeRoutine}
+            existingSession={editingSession}
+            onFinish={handleFinishWorkout}
+            onBack={() => { setCurrentRoute('calendar'); window.location.hash = 'calendar'; }}
+            onSessionUpdate={() => { }} // No auto-save to local storage needed for history edit
+            isHistory={true}
+          />
         ) : (
           <Router route={currentRoute}>
             {(route) => {
               switch (route) {
                 case 'home': return <HomeScreen routines={routines} onStartWorkout={handleStartWorkout} onResume={handleResumeWorkout} onViewHistory={() => window.location.hash = 'calendar'} activeSession={activeSession} userProfile={userProfile} stats={stats} latestWeight={latestWeight} onRefresh={fetchDashboardData} />;
                 case 'workouts': return <RoutinesScreen routines={routines} onUpdateRoutines={setRoutines} />;
-                case 'calendar': return <CalendarScreen />;
+                case 'calendar': return <CalendarScreen onEditSession={handleEditHistory} />;
                 case 'reports': return <ReportsScreen />;
                 case 'nutrition': return <NutritionScreen profile={userProfile} />;
                 case 'settings': return <SettingsScreen />;

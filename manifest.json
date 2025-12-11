@@ -2,7 +2,7 @@
     "name": "IronLog Gym Tracker",
     "short_name": "IronLog",
     "start_url": ".",
-    "display": "standalone",
+    "display": "fullscreen",
     "background_color": "#121212",
     "theme_color": "#2563eb",
     "icons": [
