@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Home, Calendar, Settings as SettingsIcon, Dumbbell, BarChart3, ChevronUp, Scale, LogOut } from 'lucide-react';
 import { HomeScreen, CalendarScreen, ReportsScreen, RoutinesScreen, SettingsScreen } from './components/Dashboard';
 import { NutritionScreen } from './components/Nutrition';
@@ -41,6 +41,9 @@ function AppContent() {
   const [stats, setStats] = useState({ workouts: 0, volume: 0 });
   const [latestWeight, setLatestWeight] = useState<number | null>(null);
 
+  // Ref to prevent race conditions
+  const ignoreSessionRestoreRef = useRef(false);
+
   const fetchDashboardData = async () => {
     // 1. Sessions & Stats
     const sessions = await DatabaseService.getSessions();
@@ -71,8 +74,10 @@ function AppContent() {
     // Check for active session
     const savedSession = DatabaseService.getActiveSession();
     if (savedSession) {
+      // Optimistically set session, but check ref before setting routine
       setActiveSession(savedSession);
       DatabaseService.getRoutines().then(rs => {
+        if (ignoreSessionRestoreRef.current) return; // Prevent overwriting if user already started new
         const r = rs.find(rt => rt.id === savedSession.routineId);
         if (r) setActiveRoutine(r);
       });
@@ -138,14 +143,9 @@ function AppContent() {
         window.location.hash = 'active-workout';
         return;
       } else {
-        // Warn user they have another workout active (Optional: could add alert here, but for now just let them switch)
-        // Or simply overwrite? Let's overwrite for now or maybe just behave as "Resume Active" overrides new start.
-        // If they want to start a NEW one while another is active, they should probably discard the old one first.
-        // Ideally: Switch to active-workout, show "Workout in Progress".
-        // If they meant to start THIS routine, they need to cancel the other one.
-        // Let's just switch to active workout view.
-        setCurrentRoute('active-workout');
-        window.location.hash = 'active-workout';
+        // If user actively clicks Play on a NEW routine while another is active,
+        // we assume they want to switch. We start the new one (overwriting the old one).
+        startNewWorkout(routine);
         return;
       }
     }
@@ -166,6 +166,7 @@ function AppContent() {
   };
 
   const startNewWorkout = (routine: Routine) => {
+    ignoreSessionRestoreRef.current = true; // Block any pending restore
     setActiveRoutine(routine);
     setActiveSession(null);
     setCurrentRoute('active-workout');
