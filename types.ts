@@ -110,6 +110,7 @@ export interface FoodLog {
   fats: number;
   quantity: number; // multiplier of base serving
   unit: string;
+  notes?: string; // AI Context or User Notes
 }
 
 export interface WaterLog {

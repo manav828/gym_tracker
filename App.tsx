@@ -281,7 +281,7 @@ function AppContent() {
       { id: 'home', icon: Home, label: 'Home' },
       { id: 'workouts', icon: Dumbbell, label: 'Workouts' },
       { id: 'calendar', icon: Calendar, label: 'History' },
-      { id: 'reports', icon: BarChart3, label: 'AI Chat' },
+      { id: 'reports', icon: BarChart3, label: 'AI Coach' },
       { id: 'settings', icon: SettingsIcon, label: 'Settings' },
     ];
 

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Card, Input, Modal, ConfirmationModal } from './Shared';
-import { Plus, Search, Trash2, Droplets, Flame, X, Edit2, ChevronLeft, ChevronRight, Calendar, ArrowLeft } from 'lucide-react';
+import { Plus, Search, Trash2, Droplets, Flame, X, Edit2, ChevronLeft, ChevronRight, Calendar, ArrowLeft, Camera, Loader2 } from 'lucide-react';
 import { DatabaseService } from '../services/databaseService';
+import { GeminiService } from '../services/geminiService';
 import { FoodItem, FoodLog, UserProfile, WaterLog } from '../types';
 
 // Static Food Database (Common Items)
@@ -25,6 +26,7 @@ const STATIC_FOODS: FoodItem[] = [
     { name: "Almonds", calories: 164, protein: 6, carbs: 6, fats: 14, servingSize: "30g" }
 ];
 
+
 interface NutritionDashboardProps {
     profile: UserProfile;
     refreshTrigger: number; // Increment to force refresh
@@ -36,6 +38,10 @@ export const NutritionDashboard: React.FC<NutritionDashboardProps> = ({ profile,
     const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
     const [editingLog, setEditingLog] = useState<FoodLog | undefined>(undefined);
     const [deleteId, setDeleteId] = useState<string | null>(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [scanResult, setScanResult] = useState<any>(null);
+    const [isReviewOpen, setIsReviewOpen] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Derived Stats
     const totalCalories = foodLogs.reduce((acc, log) => acc + log.calories, 0);
@@ -101,19 +107,32 @@ export const NutritionDashboard: React.FC<NutritionDashboardProps> = ({ profile,
         <div className="space-y-4">
             {/* Main Nutrition Card */}
             <Card className="p-5 border border-emerald-100 dark:border-emerald-900/30 shadow-sm bg-white dark:bg-dark-card">
-                <div className="flex justify-between items-start mb-6">
+                <div className="flex justify-between items-center mb-6">
                     <div>
-                        <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2 text-lg">
-                            <span className="p-1.5 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600 dark:text-emerald-400">
-                                <Flame size={18} fill="currentColor" />
-                            </span>
-                            Nutrition Today
-                        </h3>
+                        <h2 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                            <Flame className="text-orange-500" fill="currentColor" /> Nutrition
+                        </h2>
+                        <p className="text-sm text-slate-400 dark:text-gray-500 font-bold uppercase tracking-wider">Daily Tracker</p>
                     </div>
-                    <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/20" onClick={() => window.location.hash = '#nutrition'}>
-                        View Details
-                    </Button>
+                    <div className="flex gap-2">
+                        <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            ref={fileInputRef}
+                            onChange={handleFileSelect}
+                        />
+                        <Button variant="secondary" onClick={() => fileInputRef.current?.click()} disabled={isAnalyzing}>
+                            {isAnalyzing ? <Loader2 size={20} className="animate-spin" /> : <Camera size={20} />}
+                        </Button>
+                        <Button onClick={() => setIsFoodModalOpen(true)}>
+                            <Plus size={20} /> Add Food
+                        </Button>
+                    </div>
                 </div>
+                <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/20" onClick={() => window.location.hash = '#nutrition'}>
+                    View Details
+                </Button>
 
                 <div className="flex items-center justify-between">
                     <div className="relative w-28 h-28 flex items-center justify-center shrink-0">
@@ -170,6 +189,61 @@ export const NutritionDashboard: React.FC<NutritionDashboardProps> = ({ profile,
                 confirmText="Delete"
                 variant="danger"
             />
+
+            {/* Scan Review Modal */}
+            <Modal isOpen={isReviewOpen} onClose={() => setIsReviewOpen(false)} title="Review Scan">
+                {scanResult && (
+                    <div className="space-y-4">
+                        <div className="relative h-40 bg-gray-100 dark:bg-white/5 rounded-2xl overflow-hidden flex items-center justify-center mb-4">
+                            <Camera size={48} className="text-gray-300 dark:text-gray-600" />
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase">Food Name</label>
+                                <input
+                                    className="w-full bg-slate-50 dark:bg-black/20 border-b border-gray-200 dark:border-gray-800 p-2 font-bold text-lg"
+                                    value={scanResult.food_name}
+                                    onChange={(e) => setScanResult({ ...scanResult, food_name: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-4 gap-2">
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Cals</label>
+                                    <div className="font-black text-xl">{scanResult.calories}</div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-blue-500 uppercase">Prot</label>
+                                    <div className="font-bold">{scanResult.protein}g</div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-green-500 uppercase">Carb</label>
+                                    <div className="font-bold">{scanResult.carbs}g</div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-purple-500 uppercase">Fat</label>
+                                    <div className="font-bold">{scanResult.fats}g</div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase">Notes (AI)</label>
+                                <textarea
+                                    className="w-full bg-slate-50 dark:bg-black/20 rounded-xl p-3 text-sm min-h-[60px]"
+                                    value={scanResult.notes}
+                                    onChange={(e) => setScanResult({ ...scanResult, notes: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <Button variant="ghost" onClick={() => setIsReviewOpen(false)} className="flex-1">Discard</Button>
+                                <Button onClick={confirmScan} className="flex-1 bg-orange-500 hover:bg-orange-600">Save Log</Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 };
@@ -246,8 +320,8 @@ export const NutritionScreen: React.FC<NutritionScreenProps> = ({ profile }) => 
                                 key={dateStr}
                                 onClick={() => setSelectedDate(dateStr)}
                                 className={`flex flex-col items-center justify-center min-w-[50px] h-[58px] rounded-xl transition-all ${isSelected
-                                        ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 scale-105'
-                                        : 'bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                    ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 scale-105'
+                                    : 'bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
                                     }`}
                             >
                                 <span className={`text-[10px] uppercase font-bold ${isSelected ? 'text-emerald-100' : ''}`}>

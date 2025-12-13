@@ -25,7 +25,7 @@ export const GeminiService = {
     }
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-1.5-flash-latest',
         contents: `Create a workout routine list based on this request: "${prompt}". 
         Return a list of routines. For each routine, provide a name and a list of exercises.
         Each exercise must have a name, muscleGroup, recommended sets, recommended reps, and a short note on form or focus.
@@ -59,7 +59,7 @@ export const GeminiService = {
 
       const text = response.text;
       if (!text) return [];
-      
+
       const data = JSON.parse(text) as GeneratedRoutine[];
       return data;
     } catch (error) {
@@ -70,10 +70,10 @@ export const GeminiService = {
 
   chatWithData: async (message: string, context: string): Promise<string> => {
     if (!apiKey) return "API Key is missing. I cannot connect to the brain.";
-    
+
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-1.5-flash-latest',
         contents: `You are an expert fitness coach called IronCoach. 
         You have access to the user's data.
         
@@ -93,6 +93,53 @@ export const GeminiService = {
     } catch (error) {
       console.error("Gemini Chat Error", error);
       return "I'm having trouble connecting to the server.";
+    }
+  },
+
+  analyzeFoodImage: async (imageBase64: string): Promise<{ food_name: string, calories: number, protein: number, carbs: number, fats: number, notes: string } | null> => {
+    if (!apiKey) {
+      alert("API Key is missing.");
+      return null;
+    }
+
+    try {
+      // Strip header if present (data:image/jpeg;base64,...)
+      const cleanBase64 = imageBase64.split(',')[1] || imageBase64;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-1.5-flash-latest', // Flash is cheaper and great for this
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `Analyze this food image. Identify the meal and estimate the nutrition for the ENTIRE portion shown.
+                        Return ONLY valid JSON with this exact schema:
+                        {
+                            "food_name": "Short descriptive name",
+                            "calories": number,
+                            "protein": number (grams),
+                            "carbs": number (grams),
+                            "fats": number (grams),
+                            "notes": "Short explanation of the estimate (e.g. 'Looks like 200g of rice')"
+                        }
+                        Do not wrap in markdown code blocks.` },
+              { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }
+            ]
+          }
+        ],
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const text = response.text;
+      if (!text) return null;
+      return JSON.parse(text);
+    } catch (error) {
+      console.error("Gemini Vision Error:", error);
+      alert("Failed to analyze image. Try again.");
+      return null;
     }
   }
 };

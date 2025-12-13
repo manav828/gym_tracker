@@ -4,7 +4,7 @@ import { DatabaseService } from '../services/databaseService';
 import { GeminiService } from '../services/geminiService';
 import { Button, Card, Modal, Input, ConfirmationModal } from './Shared';
 import { NutritionDashboard } from './Nutrition';
-import { Calendar as CalendarIcon, Activity, Plus, Play, Trash, BarChart as BarChartIcon, Sparkles, Send, Edit2, UserCircle, Scale, ChevronLeft, ChevronRight, Search, BookOpen, Copy, ArrowLeft, X, Ruler, TrendingUp, Info, Flame, Droplets, ChevronDown, ChevronUp } from 'lucide-react';
+import { Calendar as CalendarIcon, Activity, Plus, Play, Trash, BarChart as BarChartIcon, Sparkles, Send, Edit2, UserCircle, Scale, ChevronLeft, ChevronRight, Search, BookOpen, Copy, ArrowLeft, X, Ruler, TrendingUp, Info, Flame, Droplets, ChevronDown, ChevronUp, Dumbbell, Timer, Home, Settings as SettingsIcon, BarChart3, LogOut, Trash2, Camera, Loader2 } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 // --- Constants ---
@@ -70,6 +70,368 @@ const PREDEFINED_TEMPLATES = [
     }
 ];
 
+// --- Home Screen Components ---
+
+const InsightSection: React.FC<{ lastStats?: { date: number; volume: number; duration: number } }> = ({ lastStats }) => {
+    if (!lastStats) return (
+        <div className="p-4 rounded-xl bg-white/60 dark:bg-white/5 border border-white/40 dark:border-white/5 flex items-center gap-3 shadow-sm backdrop-blur-sm">
+            <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500"><Sparkles size={16} fill="currentColor" /></div>
+            <div>
+                <p className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-widest leading-tight">Coach Tip</p>
+                <p className="text-xs font-bold text-slate-700 dark:text-gray-200 leading-tight mt-0.5">Consistency beats intensity.</p>
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="grid grid-cols-2 gap-3">
+            <div className="p-3 rounded-xl bg-white/60 dark:bg-white/5 border border-white/40 dark:border-white/5 shadow-sm backdrop-blur-sm">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-widest mb-1">Last Session</p>
+                <div className="flex items-baseline gap-1">
+                    <span className="text-lg font-bold text-gray-900 dark:text-white">{Math.round(lastStats.duration / 60)}</span>
+                    <span className="text-xs text-gray-500">min</span>
+                </div>
+            </div>
+            <div className="p-3 rounded-xl bg-white/60 dark:bg-white/5 border border-white/40 dark:border-white/5 shadow-sm backdrop-blur-sm">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-widest mb-1">Volume</p>
+                <div className="flex items-baseline gap-1">
+                    <span className="text-lg font-black text-slate-900 dark:text-white">{(lastStats.volume / 1000).toFixed(1)}k</span>
+                    <span className="text-xs font-bold text-slate-500 dark:text-gray-500">kg</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const HeroCard: React.FC<{ routine: Routine; onStart: () => void }> = ({ routine, onStart }) => {
+    return (
+        <div className="relative overflow-hidden rounded-[2.5rem] p-1 transition-all duration-300 group ring-1 ring-black/5 dark:ring-white/10">
+            {/* Backgrounds */}
+            <div className="absolute inset-0 bg-[#f0f9ff] dark:bg-gradient-to-br dark:from-[#1a1a1a] dark:to-[#0a0a0a] transition-colors" />
+
+            {/* Glow Effects */}
+            <div className="absolute -top-32 -right-32 w-80 h-80 bg-blue-500/10 dark:bg-primary-500/20 rounded-full blur-3xl transition-opacity pointer-events-none" />
+
+            <div className="relative h-full rounded-[2.3rem] p-7 flex flex-col justify-between
+                bg-transparent
+            ">
+                <div className="flex justify-between items-start mb-4">
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/80 dark:bg-white/5 border border-blue-100 dark:border-white/10 shadow-sm backdrop-blur-sm">
+                        <span className="w-2 h-2 rounded-full bg-blue-500 dark:bg-primary-500 animate-pulse" />
+                        <span className="text-[11px] font-black text-blue-900 dark:text-white uppercase tracking-widest">Today's Workout</span>
+                    </div>
+                    {routine.lastPerformed && (
+                        <span className="text-[11px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-widest mt-1">
+                            Last: {new Date(routine.lastPerformed).toLocaleDateString(undefined, { weekday: 'short' })}
+                        </span>
+                    )}
+                </div>
+
+                <div className="mb-6">
+                    <h2 className="text-4xl font-black text-slate-900 dark:text-white leading-[0.95] mb-3 tracking-tighter">
+                        {routine.name}
+                    </h2>
+                    <div className="flex gap-4 text-xs font-bold text-slate-500 dark:text-gray-400 uppercase tracking-widest">
+                        <span className="flex items-center gap-1.5"><Activity size={14} className="text-blue-500" /> {routine.exercises.length} Exercises</span>
+                        <span className="flex items-center gap-1.5"><Timer size={14} className="text-indigo-500" /> ~{routine.exercises.length * 5} min</span>
+                    </div>
+                </div>
+
+                <div className="mb-6">
+                    <InsightSection lastStats={routine.lastPerformed ? { date: routine.lastPerformed, volume: 12500, duration: 3200 } : undefined} />
+                </div>
+
+                <button
+                    onClick={onStart}
+                    className="w-full relative overflow-hidden rounded-2xl bg-slate-900 dark:bg-primary-600 text-white font-black text-lg py-4 shadow-xl shadow-slate-900/20 dark:shadow-primary-600/40 group-hover:scale-[1.02] active:scale-[0.98] transition-all transform will-change-transform"
+                >
+                    <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                    <div className="relative flex items-center justify-center gap-3">
+                        <Play fill="currentColor" size={22} /> START SESSION
+                    </div>
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const MetricCard: React.FC<{
+    label: string;
+    value: string | number;
+    unit?: string;
+    icon: React.ElementType;
+    trend?: 'up' | 'down' | 'neutral';
+    onClick?: () => void;
+}> = ({ label, value, unit, icon: Icon, trend, onClick }) => (
+    <button onClick={onClick} className="flex-1 relative overflow-hidden rounded-3xl p-5 transition-all active:scale-[0.98] text-left group
+        bg-white shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-transparent hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)]
+        dark:bg-[#121212] dark:border-white/5 dark:shadow-none dark:hover:bg-[#1a1a1a]
+    ">
+        <div className="absolute top-5 right-5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 dark:text-gray-600">
+            <Edit2 size={14} />
+        </div>
+
+        <div className="flex justify-between items-start mb-4">
+            <div className="p-3 rounded-2xl bg-slate-50 dark:bg-white/5 text-slate-500 dark:text-gray-400 group-hover:text-blue-500 transition-colors">
+                <Icon size={20} strokeWidth={2} />
+            </div>
+            {trend && (
+                <div className={`text-[10px] font-bold px-2 py-1 rounded-full ${trend === 'down' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-rose-50 text-rose-600 dark:bg-rose-900/20 dark:text-rose-400'}`}>
+                    {trend === 'down' ? '↓' : '↑'}
+                </div>
+            )}
+        </div>
+        <div>
+            <div className="text-[11px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-widest mb-1">{label}</div>
+            <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                {value} <span className="text-sm font-bold text-slate-400 dark:text-gray-600 ml-0.5">{unit}</span>
+            </div>
+        </div>
+    </button>
+);
+
+const HydrationCard: React.FC<{ logs: WaterLog[]; onAdd: (amount: number) => void }> = ({ logs, onAdd }) => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayTotal = logs.filter(l => l.date === today).reduce((acc, l) => acc + l.amount, 0);
+    const goal = 3000;
+    const percentage = Math.min(100, Math.round((todayTotal / goal) * 100));
+
+    return (
+        <div className="rounded-[2.5rem] p-1 mb-8
+            bg-white shadow-sm border border-slate-100
+            dark:bg-[#121212] dark:shadow-none dark:border-white/5
+        ">
+            <div className="p-6">
+                <div className="flex items-center justify-between mb-8">
+                    <div>
+                        <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2 uppercase tracking-wide">
+                            <Droplets size={18} className="text-cyan-500" fill="currentColor" /> Hydration
+                        </h3>
+                        <p className="text-xs text-slate-400 dark:text-gray-500 font-bold mt-1 tracking-wide">Daily Goal: 3000ml</p>
+                    </div>
+                    {/* Ring */}
+                    <div className="relative w-16 h-16 flex items-center justify-center">
+                        <svg className="w-full h-full transform -rotate-90">
+                            <circle cx="32" cy="32" r="26" stroke="currentColor" strokeWidth="6" fill="transparent" className="text-slate-100 dark:text-white/5" />
+                            <circle cx="32" cy="32" r="26" stroke="currentColor" strokeWidth="6" fill="transparent" strokeDasharray={163} strokeDashoffset={163 - (percentage / 100) * 163} className="text-cyan-500 transition-all duration-1000 ease-out" strokeLinecap="round" />
+                        </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase">Today</span>
+                            <span className="text-xs font-black text-slate-900 dark:text-white">{percentage}%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                    <button onClick={() => onAdd(250)} className="flex-[2] py-4 px-4 rounded-xl bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-bold shadow-lg shadow-cyan-500/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group">
+                        <Plus size={18} strokeWidth={3} className="group-hover:scale-110 transition-transform" /> Add 250ml
+                    </button>
+                    <button onClick={() => onAdd(500)} className="flex-1 py-4 px-4 rounded-xl bg-slate-50 dark:bg-white/5 text-slate-500 dark:text-gray-400 text-xs font-bold hover:bg-slate-100 dark:hover:bg-white/10 active:scale-[0.98] transition-all">
+                        +500ml
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const NutritionCard: React.FC<{ logs: FoodLog[]; onLogReq: () => void; profile: UserProfile | null; onRefresh: () => void }> = ({ logs, onLogReq, profile, onRefresh }) => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayLogs = logs.filter(l => l.date === today);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [scanResult, setScanResult] = useState<any>(null);
+    const [isReviewOpen, setIsReviewOpen] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const totals = todayLogs.reduce((acc, log) => ({
+        calories: acc.calories + log.calories,
+        protein: acc.protein + log.protein,
+        carbs: acc.carbs + log.carbs,
+        fats: acc.fats + log.fats
+    }), { calories: 0, protein: 0, carbs: 0, fats: 0 });
+
+    const goals = {
+        calories: profile?.calorieGoal || 2500,
+        protein: profile?.proteinGoal || 150,
+        carbs: profile?.carbsGoal || 250,
+        fats: profile?.fatsGoal || 70
+    };
+
+    const calPct = Math.min(100, Math.round((totals.calories / goals.calories) * 100));
+
+    // Handle File Upload
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsAnalyzing(true);
+        try {
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                const base64 = reader.result as string;
+                const result = await GeminiService.analyzeFoodImage(base64);
+                if (result) {
+                    setScanResult(result);
+                    setIsReviewOpen(true);
+                }
+                setIsAnalyzing(false);
+            };
+            reader.readAsDataURL(file);
+        } catch (error) {
+            console.error("Scan failed", error);
+            setIsAnalyzing(false);
+        }
+    };
+
+    const confirmScan = async () => {
+        if (!scanResult) return;
+
+        await DatabaseService.addFoodLog({
+            date: new Date().toISOString().split('T')[0],
+            mealType: 'Snack', // Default, user can change if we add a select
+            foodName: scanResult.food_name,
+            calories: scanResult.calories,
+            protein: scanResult.protein,
+            carbs: scanResult.carbs,
+            fats: scanResult.fats,
+            quantity: 1,
+            unit: 'serving',
+            notes: scanResult.notes
+        });
+
+        setIsReviewOpen(false);
+        setScanResult(null);
+        onRefresh();
+    };
+
+    // Mini Component for Macro
+    const MacroItem = ({ label, value, goal, color }: any) => (
+        <div className="flex flex-col items-center">
+            <div className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider mb-1">{label}</div>
+            <div className="text-sm font-black text-slate-900 dark:text-white">{value}g</div>
+            <div className="w-12 h-1 bg-slate-100 dark:bg-white/10 rounded-full mt-1 overflow-hidden">
+                <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(100, (value / goal) * 100)}%` }} />
+            </div>
+        </div>
+    );
+
+    return (
+        <>
+            <div className="rounded-[2.5rem] p-1 mb-6
+            bg-white shadow-sm border border-slate-100
+            dark:bg-[#121212] dark:shadow-none dark:border-white/5
+        ">
+                <div className="p-6">
+                    <div className="flex justify-between items-start mb-6">
+                        <div>
+                            <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2 uppercase tracking-wide">
+                                <Flame size={18} className="text-orange-500" fill="currentColor" /> Nutrition
+                            </h3>
+                            <p className="text-xs text-slate-400 dark:text-gray-500 font-bold mt-1 tracking-wide">Fuel your body</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                ref={fileInputRef}
+                                onChange={handleFileSelect}
+                            />
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isAnalyzing}
+                                className="p-2.5 rounded-xl bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-500 hover:bg-orange-100 dark:hover:bg-orange-500/20 transition-all active:scale-95 disabled:opacity-50"
+                            >
+                                {isAnalyzing ? <Loader2 size={20} className="animate-spin" /> : <Camera size={20} />}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-6 mb-6">
+                        {/* Ring */}
+                        <div className="relative w-24 h-24 flex-shrink-0">
+                            <svg className="w-full h-full transform -rotate-90">
+                                <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="6" fill="transparent" className="text-slate-100 dark:text-white/5" />
+                                <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="6" fill="transparent" strokeDasharray={251} strokeDashoffset={251 - (calPct / 100) * 251} className="text-orange-500 transition-all duration-1000 ease-out" strokeLinecap="round" />
+                            </svg>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">{totals.calories}</span>
+                                <span className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase">/ {goals.calories}</span>
+                            </div>
+                        </div>
+
+                        {/* Macros Grid */}
+                        <div className="flex-1 grid grid-cols-3 gap-2">
+                            <MacroItem label="Prot" value={Math.round(totals.protein)} goal={goals.protein} color="bg-blue-500" />
+                            <MacroItem label="Carb" value={Math.round(totals.carbs)} goal={goals.carbs} color="bg-emerald-500" />
+                            <MacroItem label="Fat" value={Math.round(totals.fats)} goal={goals.fats} color="bg-purple-500" />
+                        </div>
+                    </div>
+
+                    <button onClick={onLogReq} className="w-full py-3.5 rounded-xl bg-slate-900 dark:bg-white/10 hover:bg-black dark:hover:bg-white/20 text-white text-sm font-bold shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 group">
+                        <Plus size={18} strokeWidth={3} className="text-white/50" /> Log Meal Manually
+                    </button>
+                </div>
+            </div>
+
+            {/* Scan Review Modal */}
+            <Modal isOpen={isReviewOpen} onClose={() => setIsReviewOpen(false)} title="Review Scan">
+                {scanResult && (
+                    <div className="space-y-4">
+                        <div className="relative h-40 bg-gray-100 dark:bg-white/5 rounded-2xl overflow-hidden flex items-center justify-center mb-4">
+                            <Camera size={48} className="text-gray-300 dark:text-gray-600" />
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase">Food Name</label>
+                                <input
+                                    className="w-full bg-slate-50 dark:bg-black/20 border-b border-gray-200 dark:border-gray-800 p-2 font-bold text-lg"
+                                    value={scanResult.food_name}
+                                    onChange={(e) => setScanResult({ ...scanResult, food_name: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-4 gap-2">
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Cals</label>
+                                    <div className="font-black text-xl">{scanResult.calories}</div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-blue-500 uppercase">Prot</label>
+                                    <div className="font-bold">{scanResult.protein}g</div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-green-500 uppercase">Carb</label>
+                                    <div className="font-bold">{scanResult.carbs}g</div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-purple-500 uppercase">Fat</label>
+                                    <div className="font-bold">{scanResult.fats}g</div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase">Notes (AI)</label>
+                                <textarea
+                                    className="w-full bg-slate-50 dark:bg-black/20 rounded-xl p-3 text-sm min-h-[60px]"
+                                    value={scanResult.notes}
+                                    onChange={(e) => setScanResult({ ...scanResult, notes: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <Button variant="ghost" onClick={() => setIsReviewOpen(false)} className="flex-1">Discard</Button>
+                                <Button onClick={confirmScan} className="flex-1 bg-orange-500 hover:bg-orange-600">Save Log</Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+        </>
+    );
+};
+
 // --- Home Screen ---
 export const HomeScreen: React.FC<{
     routines: Routine[];
@@ -82,18 +444,25 @@ export const HomeScreen: React.FC<{
     latestWeight: number | null;
     onRefresh: () => void;
 }> = ({ routines, onStartWorkout, onViewHistory, onResume, activeSession, userProfile, stats, latestWeight, onRefresh }) => {
-    // Local UI state
-    const [userHeight, setUserHeight] = useState<number | null>(null);
+    // Local State
+    const [waterLogs, setWaterLogs] = useState<WaterLog[]>([]);
+    const [foodLogs, setFoodLogs] = useState<FoodLog[]>([]);
 
-    // Sync local height with profile prop when it changes
-    useEffect(() => {
-        if (userProfile?.height) setUserHeight(userProfile.height);
-    }, [userProfile]);
-
-    const [isHeightModalOpen, setIsHeightModalOpen] = useState(false);
+    // Modals
     const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
-    const [inputHeight, setInputHeight] = useState('');
     const [inputWeight, setInputWeight] = useState('');
+
+    useEffect(() => {
+        DatabaseService.getAllWaterLogs().then(setWaterLogs);
+        DatabaseService.getFoodLogs().then(setFoodLogs);
+    }, [onRefresh]); // Simple refresh trigger
+
+    const handleAddWater = async (amount: number) => {
+        const today = new Date().toISOString().split('T')[0];
+        await DatabaseService.logWater(amount, today);
+        const updated = await DatabaseService.getAllWaterLogs();
+        setWaterLogs(updated);
+    };
 
     const handleSaveWeight = async () => {
         if (!inputWeight) return;
@@ -102,192 +471,142 @@ export const HomeScreen: React.FC<{
             await DatabaseService.logWeight(w, new Date().toISOString().split('T')[0]);
             setIsWeightModalOpen(false);
             setInputWeight('');
-            onRefresh(); // Trigger parent refresh
+            onRefresh();
         }
-    }
+    };
 
-    const handleSaveHeight = async () => {
-        if (!inputHeight) return;
-        const h = parseFloat(inputHeight);
-        if (!isNaN(h)) {
-            const profile = await DatabaseService.getUserProfile();
-            await DatabaseService.saveUserProfile({ ...profile, height: h });
-            setUserHeight(h);
-            setIsHeightModalOpen(false);
-            onRefresh(); // Trigger parent refresh
-        }
-    }
+    // Derived Data
+    const sortedRoutines = [...routines].sort((a, b) => (a.lastPerformed || 0) - (b.lastPerformed || 0));
+    const nextRoutine = sortedRoutines[0];
+    const otherRoutines = sortedRoutines.slice(1);
 
-    const calculateBMI = () => {
-        if (!latestWeight || !userHeight) return null;
-        const heightM = userHeight / 100;
-        const bmi = latestWeight / (heightM * heightM);
-        return bmi.toFixed(1);
-    }
-
-    const getBMIInfo = (bmi: number) => {
-        if (bmi < 18.5) return { label: 'Underweight', color: 'text-blue-500' };
-        if (bmi < 25) return { label: 'Normal', color: 'text-green-500' };
-        if (bmi < 30) return { label: 'Overweight', color: 'text-orange-500' };
-        return { label: 'Obese', color: 'text-red-500' };
-    }
-
-    const bmi = calculateBMI();
-    const bmiInfo = bmi ? getBMIInfo(parseFloat(bmi)) : null;
-
-    // Sort Routines: "Next Up" Logic
-    const sortedRoutines = [...routines].sort((a, b) => {
-        const timeA = a.lastPerformed || 0;
-        const timeB = b.lastPerformed || 0;
-        return timeA - timeB;
-    });
+    const bmi = (userProfile?.height && latestWeight)
+        ? (latestWeight / Math.pow(userProfile.height / 100, 2)).toFixed(1)
+        : '--';
 
     return (
-        <div className="p-4 space-y-6 pb-24">
-            <div className="flex justify-between items-center">
+        <div className="min-h-screen bg-[#F6F8FC] dark:bg-[#09090b] pb-32 transition-colors duration-500">
+            {/* Header */}
+            <header className="px-6 pt-10 pb-6 flex justify-between items-center bg-[#F6F8FC]/80 dark:bg-[#09090b]/80 backdrop-blur-xl sticky top-0 z-20">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white">GymPro</h1>
-                    <p className="text-sm text-gray-500">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+                    <h1 className="text-3xl font-black italic tracking-tighter text-slate-900 dark:text-white">GYMPRO</h1>
+                    <p className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-widest mt-0.5">
+                        {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+                    </p>
                 </div>
-                <div onClick={() => window.location.hash = '#settings'} className="cursor-pointer w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold">
-                    <UserCircle size={24} />
+                <div
+                    onClick={() => window.location.hash = '#settings'}
+                    className="w-11 h-11 rounded-full bg-white dark:bg-white/10 flex items-center justify-center text-slate-700 dark:text-white hover:bg-slate-50 dark:hover:bg-white/20 transition-all cursor-pointer shadow-sm border border-slate-100 dark:border-transparent"
+                >
+                    <UserCircle size={22} className="opacity-80" />
                 </div>
-            </div>
+            </header>
 
-            {/* Active Session Card */}
-            {activeSession && (
-                <Card className="border-l-4 border-l-green-500 animate-pulse bg-green-50 dark:bg-green-900/10">
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <h3 className="font-bold text-green-700 dark:text-green-400">Workout in Progress</h3>
-                            <p className="text-sm text-green-600 dark:text-green-500">{activeSession.routineName}</p>
+            <div className="px-5 space-y-8">
+                {/* Active Session Banner */}
+                {activeSession && (
+                    <div className="bg-green-500 text-white p-4 rounded-2xl shadow-lg flex justify-between items-center mb-6 animate-in slide-in-from-top-5">
+                        <div className="flex items-center gap-3">
+                            <div className="w-2 h-2 rounded-full bg-white animate-pulse"></div>
+                            <span className="font-bold">Workout in Progress</span>
                         </div>
-                        <Button size="sm" onClick={() => onResume(activeSession)} className="bg-green-600 hover:bg-green-700">Resume</Button>
+                        <Button size="sm" variant="secondary" onClick={() => onResume(activeSession)} className="bg-white/90 text-green-700 hover:bg-white text-xs py-1 px-3 h-8">
+                            Resume
+                        </Button>
                     </div>
-                </Card>
-            )}
+                )}
 
-            {/* Nutrition Module */}
-            {userProfile && <NutritionDashboard profile={userProfile} refreshTrigger={latestWeight || 0} />}
-
-            {/* Quick Stats Grid */}
-            <div className="grid grid-cols-2 gap-4">
-                <Card className="p-4 relative" onClick={() => setIsWeightModalOpen(true)}>
-                    <div className="flex items-center gap-2 text-gray-500 mb-2 text-xs uppercase font-bold tracking-wider">
-                        <Scale size={16} /> Weight
+                {/* Hero Card */}
+                {nextRoutine ? (
+                    <HeroCard routine={nextRoutine} onStart={() => onStartWorkout(nextRoutine)} />
+                ) : (
+                    <div className="text-center py-12 bg-white dark:bg-dark-card rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800 mb-6">
+                        <p className="text-gray-400 font-medium mb-4">No routines found</p>
+                        <Button onClick={() => window.location.hash = '#workouts'}>Create Routine</Button>
                     </div>
-                    <div className="text-2xl font-bold dark:text-white">{latestWeight || '--'} <span className="text-sm font-normal text-gray-400">kg</span></div>
-                    <div className="absolute bottom-3 right-3 text-primary-500"><Plus size={16} /></div>
-                </Card>
+                )}
 
-                <Card className="p-4 relative" onClick={() => !userHeight && setIsHeightModalOpen(true)}>
-                    <div className="flex items-center gap-2 text-gray-500 mb-2 text-xs uppercase font-bold tracking-wider">
-                        <Ruler size={16} /> BMI
+
+                {/* Metrics Grid */}
+                <div>
+                    <div className="flex gap-4 mb-6">
+                        <MetricCard
+                            label="Weight"
+                            value={latestWeight || '--'}
+                            unit="kg"
+                            icon={Scale}
+                            trend="neutral"
+                            color="bg-purple-100 text-purple-600"
+                            onClick={() => setIsWeightModalOpen(true)}
+                        />
+                        <MetricCard
+                            label="BMI"
+                            value={bmi || '--'}
+                            icon={Ruler}
+                            color="bg-emerald-100 text-emerald-600"
+                        />
                     </div>
-                    {bmi ? (
-                        <>
-                            <div className="text-2xl font-bold dark:text-white">{bmi}</div>
-                            <div className={`text-xs font-bold ${bmiInfo?.color}`}>{bmiInfo?.label}</div>
-                        </>
-                    ) : (
-                        <div className="flex flex-col items-start justify-center h-full">
-                            <div className="text-sm text-primary-500 font-bold flex items-center gap-1">Add Height <Plus size={12} /></div>
-                        </div>
-                    )}
-                    {userHeight && (
-                        <div className="absolute bottom-3 right-3 text-gray-300" onClick={(e) => { e.stopPropagation(); setIsHeightModalOpen(true); }}>
-                            <Edit2 size={12} />
-                        </div>
-                    )}
-                </Card>
-            </div>
 
-            {/* Quick Start Workout */}
-            <div>
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">Start Workout</h2>
-                    <Button variant="ghost" size="sm" onClick={() => window.location.hash = '#workouts'}>Manage</Button>
+                    {/* Nutrition & Hydration Stack */}
+                    <div className="space-y-6">
+                        <NutritionCard
+                            logs={foodLogs}
+                            profile={userProfile}
+                            onLogReq={() => window.location.hash = '#nutrition'}
+                            onRefresh={onRefresh}
+                        />
+                        <HydrationCard logs={waterLogs} onAdd={handleAddWater} />
+                    </div>
                 </div>
-                <div className="space-y-3">
-                    {sortedRoutines.length === 0 ? (
-                        <div className="text-center py-8 bg-gray-50 dark:bg-dark-card rounded-xl border border-dashed border-gray-200 dark:border-gray-800">
-                            <p className="text-gray-500 mb-4">No routines found.</p>
-                            <Button onClick={() => window.location.hash = '#routines'}>Create Routine</Button>
-                        </div>
-                    ) : (
-                        sortedRoutines.map(routine => (
-                            <div key={routine.id} className="relative bg-white dark:bg-dark-card rounded-xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
-                                {activeSession && activeSession.routineId === routine.id && (
-                                    <div className="absolute top-0 right-0 bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg rounded-tr-lg animate-pulse">
-                                        IN PROGRESS
-                                    </div>
-                                )}
-                                <div className="flex justify-between items-start mb-3">
+
+                {/* Other Routines */}
+                {otherRoutines.length > 0 && (
+                    <div>
+                        <h3 className="font-bold text-gray-900 dark:text-white mb-4 ml-1">Other Routines</h3>
+                        <div className="space-y-3">
+                            {otherRoutines.map(routine => (
+                                <div key={routine.id} className="bg-white dark:bg-dark-card p-4 rounded-2xl border border-gray-100 dark:border-gray-800 flex justify-between items-center group active:scale-[0.98] transition-all">
                                     <div>
-                                        <div className="text-xs text-primary-600 dark:text-primary-400 font-bold mb-1 uppercase tracking-wider">{routine.dayLabel || 'Routine'}</div>
-                                        <h3 className="font-bold text-gray-900 dark:text-white text-lg">{routine.name}</h3>
-                                        <div className="text-xs text-gray-500 mt-1">
-                                            {routine.lastPerformed ? `Last: ${new Date(routine.lastPerformed).toLocaleDateString()}` : 'Never performed'}
-                                        </div>
+                                        <h4 className="font-bold text-gray-900 dark:text-white">{routine.name}</h4>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            {routine.exercises.length} Exercises • {routine.lastPerformed ? `Last: ${new Date(routine.lastPerformed).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : 'Never'}
+                                        </p>
                                     </div>
                                     <button
                                         onClick={() => onStartWorkout(routine)}
-                                        className="w-10 h-10 rounded-full bg-primary-500 text-white flex items-center justify-center shadow-lg shadow-primary-500/30 hover:bg-primary-600 transition-colors"
+                                        className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-400 group-hover:bg-primary-500 group-hover:text-white flex items-center justify-center transition-colors"
                                     >
-                                        <Play size={20} fill="currentColor" className="ml-0.5" />
+                                        <Play size={14} fill="currentColor" />
                                     </button>
                                 </div>
-                                <div className="flex flex-wrap gap-2">
-                                    {routine.exercises.slice(0, 3).map((ex, i) => (
-                                        <span key={i} className="text-[10px] px-2 py-1 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-md font-medium">
-                                            {ex.name}
-                                        </span>
-                                    ))}
-                                    {routine.exercises.length > 3 && (
-                                        <span className="text-[10px] px-2 py-1 bg-gray-50 dark:bg-gray-800 text-gray-400 rounded-md font-medium">+{routine.exercises.length - 3}</span>
-                                    )}
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
 
-            {/* Height Modal */}
-            <Modal isOpen={isHeightModalOpen} onClose={() => setIsHeightModalOpen(false)} title="Update Height">
-                <div className="space-y-4">
-                    <p className="text-sm text-gray-500">Enter your height to calculate BMI.</p>
-                    <Input
-                        label="Height (cm)"
-                        type="number"
-                        placeholder="e.g. 175"
-                        value={inputHeight}
-                        onChange={(e) => setInputHeight(e.target.value)}
-                        autoFocus
-                    />
-                    <Button onClick={handleSaveHeight} className="w-full">Save Height</Button>
-                </div>
-            </Modal>
-
-            {/* Weight Modal */}
+            {/* Weight Logging Modal */}
             <Modal isOpen={isWeightModalOpen} onClose={() => setIsWeightModalOpen(false)} title="Log Weight">
                 <div className="space-y-4">
-                    <p className="text-sm text-gray-500">Log your current body weight.</p>
+                    <div className="flex justify-center py-4">
+                        <div className="w-20 h-20 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center text-purple-600 dark:text-purple-400">
+                            <Scale size={32} />
+                        </div>
+                    </div>
                     <Input
-                        label="Weight (kg)"
                         type="number"
-                        placeholder="e.g. 80.5"
+                        placeholder="Current Weight (kg)"
                         value={inputWeight}
-                        onChange={(e) => setInputWeight(e.target.value)}
+                        onChange={e => setInputWeight(e.target.value)}
                         autoFocus
+                        className="text-center text-2xl font-bold py-4"
                     />
-                    <Button onClick={handleSaveWeight} className="w-full">Save Weight</Button>
+                    <Button onClick={handleSaveWeight} className="w-full h-12 text-lg">Update Weight</Button>
                 </div>
             </Modal>
         </div>
     );
 };
-
 // --- Calendar/History Screen ---
 export const CalendarScreen: React.FC<{ onEditSession: (session: WorkoutSession) => void }> = ({ onEditSession }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
