@@ -1,6 +1,9 @@
+import { TrackingType } from '../types';
+
 export interface ExerciseDetail {
     name: string;
     target: string;
+    defaultTrackingType?: TrackingType;
 }
 
 export const COMMON_EXERCISES: Record<string, ExerciseDetail[]> = {
@@ -14,14 +17,14 @@ export const COMMON_EXERCISES: Record<string, ExerciseDetail[]> = {
         { name: 'Chest Fly (Dumbbell)', target: 'Inner/Outer Chest (Stretch)' },
         { name: 'Cable Crossover', target: 'Lower/Inner Chest' },
         { name: 'Pec Deck Machine', target: 'Inner Chest (Isolation)' },
-        { name: 'Push Ups', target: 'General Chest & Core' },
+        { name: 'Push Ups', target: 'General Chest & Core', defaultTrackingType: 'reps_only' },
         { name: 'Weighted Push Ups', target: 'General Chest' },
-        { name: 'Dips (Chest Focus)', target: 'Lower Chest' },
+        { name: 'Dips (Chest Focus)', target: 'Lower Chest', defaultTrackingType: 'reps_only' },
         { name: 'Landmine Press', target: 'Upper/Inner Chest' }
     ],
     'Back': [
-        { name: 'Pull Ups', target: 'Lats (Width)' },
-        { name: 'Chin Ups', target: 'Lats & Biceps' },
+        { name: 'Pull Ups', target: 'Lats (Width)', defaultTrackingType: 'reps_only' },
+        { name: 'Chin Ups', target: 'Lats & Biceps', defaultTrackingType: 'reps_only' },
         { name: 'Lat Pulldown (Wide)', target: 'Upper Lats (Width)' },
         { name: 'Lat Pulldown (Close)', target: 'Lower Lats' },
         { name: 'Barbell Row', target: 'Mid Back (Thickness)' },
@@ -78,27 +81,27 @@ export const COMMON_EXERCISES: Record<string, ExerciseDetail[]> = {
         { name: 'Overhead Ext (Dumbbell)', target: 'Long Head (Stretch)' },
         { name: 'Overhead Ext (Cable)', target: 'Long Head (Stretch)' },
         { name: 'Close Grip Bench', target: 'Triceps (Mass)' },
-        { name: 'Dips', target: 'Triceps (Overall)' },
+        { name: 'Dips', target: 'Triceps (Overall)', defaultTrackingType: 'reps_only' },
         { name: 'Kickbacks', target: 'Triceps (Contraction)' }
     ],
     'Core': [
-        { name: 'Plank', target: 'Core Stability' },
-        { name: 'Side Plank', target: 'Obliques' },
-        { name: 'Crunches', target: 'Upper Abs' },
-        { name: 'Leg Raises', target: 'Lower Abs' },
-        { name: 'Hanging Leg Raises', target: 'Lower Abs (Decompressed)' },
-        { name: 'Russian Twists', target: 'Obliques' },
-        { name: 'Ab Wheel Rollout', target: 'Deep Core/Lats' },
-        { name: 'Mountain Climbers', target: 'Core & Cardio' },
+        { name: 'Plank', target: 'Core Stability', defaultTrackingType: 'duration' },
+        { name: 'Side Plank', target: 'Obliques', defaultTrackingType: 'duration' },
+        { name: 'Crunches', target: 'Upper Abs', defaultTrackingType: 'reps_only' },
+        { name: 'Leg Raises', target: 'Lower Abs', defaultTrackingType: 'reps_only' },
+        { name: 'Hanging Leg Raises', target: 'Lower Abs (Decompressed)', defaultTrackingType: 'reps_only' },
+        { name: 'Russian Twists', target: 'Obliques', defaultTrackingType: 'reps_only' },
+        { name: 'Ab Wheel Rollout', target: 'Deep Core/Lats', defaultTrackingType: 'reps_only' },
+        { name: 'Mountain Climbers', target: 'Core & Cardio', defaultTrackingType: 'duration' },
         { name: 'Cable Woodchopper', target: 'Obliques (Rotational)' }
     ],
     'Cardio': [
-        { name: 'Treadmill Run', target: 'Endurance' },
-        { name: 'Cycling', target: 'Leg Endurance' },
-        { name: 'Elliptical', target: 'Low Impact' },
-        { name: 'Rowing Machine', target: 'Full Body Endurance' },
-        { name: 'Jump Rope', target: 'Coordination & Calves' },
-        { name: 'HIIT Sprints', target: 'Fat Loss (Anaerobic)' },
-        { name: 'Burpees', target: 'Full Body Conditioning' }
+        { name: 'Treadmill Run', target: 'Endurance', defaultTrackingType: 'distance_duration' },
+        { name: 'Cycling', target: 'Leg Endurance', defaultTrackingType: 'distance_duration' },
+        { name: 'Elliptical', target: 'Low Impact', defaultTrackingType: 'distance_duration' },
+        { name: 'Rowing Machine', target: 'Full Body Endurance', defaultTrackingType: 'distance_duration' },
+        { name: 'Jump Rope', target: 'Coordination & Calves', defaultTrackingType: 'duration' },
+        { name: 'HIIT Sprints', target: 'Fat Loss (Anaerobic)', defaultTrackingType: 'duration' },
+        { name: 'Burpees', target: 'Full Body Conditioning', defaultTrackingType: 'reps_only' }
     ]
 };

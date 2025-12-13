@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { WorkoutSession, Set, Routine } from '../types';
+import { WorkoutSession, Set, Routine, TrackingType } from '../types';
 import { DatabaseService } from '../services/databaseService';
 import { Button, Input, Card, ConfirmationModal, Modal } from './Shared';
-import { Timer, Check, Plus, Trash2, Video, History, Scale, TrendingUp, ChevronLeft, X, Play, Pause } from 'lucide-react';
+import { Timer, Check, Plus, Trash2, Video, History, Scale, TrendingUp, ChevronLeft, X, Play, Pause, Settings } from 'lucide-react';
 import { COMMON_EXERCISES } from './exercisesData';
 
 interface ActiveSessionProps {
@@ -47,24 +47,29 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
     const [isPaused, setIsPaused] = useState<boolean>(!!session.lastPausedTime);
     const [bodyWeight, setBodyWeight] = useState<string>('');
     const [isDiscardModalOpen, setIsDiscardModalOpen] = useState(false);
+    const [isDeleteExerciseModalOpen, setIsDeleteExerciseModalOpen] = useState(false);
+    const [isTrackingSettingsModalOpen, setIsTrackingSettingsModalOpen] = useState(false);
 
     // Add Exercise State
     const [isAddExerciseModalOpen, setIsAddExerciseModalOpen] = useState(false);
     const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
     const [customExerciseName, setCustomExerciseName] = useState('');
+    const [customTrackingType, setCustomTrackingType] = useState<TrackingType>('reps_weight');
 
-    const handleAddExercise = (exerciseName: string) => {
+    const handleAddExercise = (exerciseName: string, defaultType: TrackingType = 'reps_weight') => {
         const newExercise = {
             exerciseId: crypto.randomUUID(), // New ID
             name: exerciseName,
-            sets: [],
-            notes: ''
+            sets: [], // Start empty
+            notes: '',
+            trackingType: defaultType
         };
         const updatedExercises = [...session.exercises, newExercise];
         setSession({ ...session, exercises: updatedExercises });
         setActiveExerciseIndex(updatedExercises.length - 1); // Switch to new
         setIsAddExerciseModalOpen(false);
         setSelectedMuscle(null);
+        setCustomTrackingType('reps_weight'); // Reset
     };
 
     const timerIntervalRef = useRef<number | null>(null);
@@ -178,15 +183,14 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
 
     const handleAddSet = (exerciseIndex: number) => {
         const updatedExercises = [...session.exercises];
-
-        // New Requirement: Always start empty
-        const suggestedWeight = 0;
-        const suggestedReps = 0;
-
+        const currentEx = updatedExercises[exerciseIndex];
+        // Default empty values based on types
         const newSet: Set = {
             id: crypto.randomUUID(),
-            reps: suggestedReps,
-            weight: suggestedWeight,
+            reps: 0,
+            weight: 0,
+            distance: 0,
+            duration: 0,
             completed: false,
             rpe: undefined
         };
@@ -215,6 +219,25 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
         updatedExercises[exerciseIndex].sets.splice(setIndex, 1);
         setSession({ ...session, exercises: updatedExercises });
     }
+
+    const handleDeleteExercise = () => {
+        const updatedExercises = session.exercises.filter((_, idx) => idx !== activeExerciseIndex);
+        setSession({ ...session, exercises: updatedExercises });
+        setIsDeleteExerciseModalOpen(false);
+        // Adjust active index
+        if (activeExerciseIndex >= updatedExercises.length) {
+            setActiveExerciseIndex(Math.max(0, updatedExercises.length - 1));
+        }
+    };
+
+    const handleUpdateTrackingType = (type: TrackingType) => {
+        const updatedExercises = [...session.exercises];
+        updatedExercises[activeExerciseIndex].trackingType = type;
+        // Optionally clean up sets if needed, but keeping data is safer for now
+        // For example, if switching from RepsOnly to WeightReps, weight defaults to 0 which is fine.
+        setSession({ ...session, exercises: updatedExercises });
+        setIsTrackingSettingsModalOpen(false);
+    };
 
     const finishSession = async () => {
         try {
@@ -343,6 +366,20 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                                 <Video size={24} />
                             </a>
                         )}
+                        <button
+                            onClick={() => setIsTrackingSettingsModalOpen(true)}
+                            className="p-2 text-gray-400 hover:text-primary-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+                            title="Configure Tracking Columns"
+                        >
+                            <Settings size={20} />
+                        </button>
+                        <button
+                            onClick={() => setIsDeleteExerciseModalOpen(true)}
+                            className="p-2 text-red-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors"
+                            title="Remove Exercise"
+                        >
+                            <Trash2 size={20} />
+                        </button>
                     </div>
 
                     {/* Comparison Logic */}
@@ -355,7 +392,19 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                             <div className="flex gap-2 overflow-x-auto no-scrollbar">
                                 {prevSessionExercise.sets.map((s, i) => (
                                     <div key={i} className="flex-shrink-0 bg-white dark:bg-dark-card px-2 py-1 rounded border border-blue-200 dark:border-blue-800/50 text-xs">
-                                        {s.weight}kg x {s.reps} {s.rpe ? `(RPE ${s.rpe})` : ''}
+                                        {(!prevSessionExercise.trackingType || prevSessionExercise.trackingType === 'reps_weight') && (
+                                            <span>{s.weight}kg x {s.reps}</span>
+                                        )}
+                                        {prevSessionExercise.trackingType === 'reps_only' && (
+                                            <span>{s.reps} reps</span>
+                                        )}
+                                        {prevSessionExercise.trackingType === 'duration' && (
+                                            <span>{s.duration}m</span>
+                                        )}
+                                        {prevSessionExercise.trackingType === 'distance_duration' && (
+                                            <span>{s.distance}km / {s.duration}m</span>
+                                        )}
+                                        {s.rpe ? ` (RPE ${s.rpe})` : ''}
                                     </div>
                                 ))}
                             </div>
@@ -364,128 +413,240 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                         <div className="mb-4 text-xs text-gray-400 italic">No previous data for this exercise in this routine.</div>
                     )}
 
-                    {/* Sets Table */}
-                    <div className="space-y-3">
-                        <div className="grid grid-cols-12 gap-2 text-xs font-bold text-gray-400 uppercase tracking-wide text-center">
-                            <div className="col-span-1">Set</div>
-                            <div className="col-span-3">kg</div>
-                            <div className="col-span-3">Reps</div>
-                            <div className="col-span-2" title="Rate of Perceived Exertion (1-10)">RPE</div>
-                            <div className="col-span-3">Done</div>
-                        </div>
+                </div>
 
-                        {currentExercise.sets.map((set, idx) => (
-                            <div key={set.id} className={`grid grid-cols-12 gap-2 items-center transition-all ${set.completed ? 'opacity-50' : ''}`}>
-                                <div className="col-span-1 flex justify-center">
-                                    <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-500">
-                                        {idx + 1}
-                                    </div>
-                                </div>
-                                <div className="col-span-3">
-                                    <input
-                                        type="number"
-                                        placeholder="kg"
-                                        value={set.weight === 0 ? '' : set.weight}
-                                        onChange={(e) => updateSet(activeExerciseIndex, idx, 'weight', e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                                        className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono font-bold text-lg focus:ring-2 focus:ring-primary-500 outline-none"
-                                    />
-                                </div>
-                                <div className="col-span-3">
-                                    <input
-                                        type="number"
-                                        placeholder="reps"
-                                        value={set.reps === 0 ? '' : set.reps}
-                                        onChange={(e) => updateSet(activeExerciseIndex, idx, 'reps', e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                                        className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono font-bold text-lg focus:ring-2 focus:ring-primary-500 outline-none"
-                                    />
-                                </div>
-                                <div className="col-span-2">
-                                    <input
-                                        type="number"
-                                        placeholder="-"
-                                        max={10}
-                                        value={set.rpe || ''}
-                                        onChange={(e) => updateSet(activeExerciseIndex, idx, 'rpe', e.target.value === '' ? undefined : parseFloat(e.target.value))}
-                                        className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono text-sm focus:ring-2 focus:ring-yellow-500 outline-none"
-                                    />
-                                </div>
-                                <div className="col-span-3 flex justify-center gap-1">
-                                    <button
-                                        onClick={() => updateSet(activeExerciseIndex, idx, 'completed', !set.completed)}
-                                        className={`w-full h-10 rounded-md flex items-center justify-center transition-colors ${set.completed
-                                            ? 'bg-green-500 text-white'
-                                            : 'bg-gray-200 dark:bg-gray-700 text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
-                                            }`}
-                                    >
-                                        <Check size={20} />
-                                    </button>
-                                    <button
-                                        onClick={() => deleteSet(activeExerciseIndex, idx)}
-                                        className="w-8 h-10 rounded-md flex items-center justify-center text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
+                {/* Sets Table Header - Dynamic based on Type */}
+                <div className="space-y-3">
+                    <div className="grid grid-cols-12 gap-2 text-xs font-bold text-gray-400 uppercase tracking-wide text-center">
+                        <div className="col-span-1">Set</div>
+                        {(!currentExercise.trackingType || currentExercise.trackingType === 'reps_weight') && (
+                            <>
+                                <div className="col-span-3">kg</div>
+                                <div className="col-span-3">Reps</div>
+                                <div className="col-span-2" title="Rate of Perceived Exertion (1-10)">RPE</div>
+                            </>
+                        )}
+                        {currentExercise.trackingType === 'reps_only' && (
+                            <>
+                                <div className="col-span-6">Reps</div>
+                                <div className="col-span-2" title="Rate of Perceived Exertion (1-10)">RPE</div>
+                            </>
+                        )}
+                        {currentExercise.trackingType === 'duration' && (
+                            <>
+                                <div className="col-span-6">Duration (min)</div>
+                                <div className="col-span-2" title="Intensity (1-10)">Int</div>
+                            </>
+                        )}
+                        {currentExercise.trackingType === 'distance_duration' && (
+                            <>
+                                <div className="col-span-3">Dist (km)</div>
+                                <div className="col-span-3">Time (min)</div>
+                                <div className="col-span-2" title="Intensity (1-10)">Int</div>
+                            </>
+                        )}
+                        <div className="col-span-3">Done</div>
+                    </div>
+
+                    {currentExercise.sets.map((set, idx) => (
+                        <div key={set.id} className={`grid grid-cols-12 gap-2 items-center transition-all ${set.completed ? 'opacity-50' : ''}`}>
+                            <div className="col-span-1 flex justify-center">
+                                <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-500">
+                                    {idx + 1}
                                 </div>
                             </div>
-                        ))}
 
-                        <Button variant="outline" className="w-full border-dashed" onClick={() => handleAddSet(activeExerciseIndex)}>
-                            <Plus size={16} className="mr-2" /> Add Set
-                        </Button>
+                            {(!currentExercise.trackingType || currentExercise.trackingType === 'reps_weight') && (
+                                <>
+                                    <div className="col-span-3">
+                                        <input
+                                            type="number"
+                                            placeholder="kg"
+                                            value={set.weight === 0 ? '' : set.weight}
+                                            onChange={(e) => updateSet(activeExerciseIndex, idx, 'weight', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                            className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono font-bold text-lg focus:ring-2 focus:ring-primary-500 outline-none"
+                                        />
+                                    </div>
+                                    <div className="col-span-3">
+                                        <input
+                                            type="number"
+                                            placeholder="reps"
+                                            value={set.reps === 0 ? '' : set.reps}
+                                            onChange={(e) => updateSet(activeExerciseIndex, idx, 'reps', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                            className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono font-bold text-lg focus:ring-2 focus:ring-primary-500 outline-none"
+                                        />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <input
+                                            type="number"
+                                            placeholder="-"
+                                            max={10}
+                                            value={set.rpe || ''}
+                                            onChange={(e) => updateSet(activeExerciseIndex, idx, 'rpe', e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                                            className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono text-sm focus:ring-2 focus:ring-yellow-500 outline-none"
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+                            {currentExercise.trackingType === 'reps_only' && (
+                                <>
+                                    <div className="col-span-6">
+                                        <input
+                                            type="number"
+                                            placeholder="reps"
+                                            value={set.reps === 0 ? '' : set.reps}
+                                            onChange={(e) => updateSet(activeExerciseIndex, idx, 'reps', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                            className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono font-bold text-lg focus:ring-2 focus:ring-primary-500 outline-none"
+                                        />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <input
+                                            type="number"
+                                            placeholder="-"
+                                            max={10}
+                                            value={set.rpe || ''}
+                                            onChange={(e) => updateSet(activeExerciseIndex, idx, 'rpe', e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                                            className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono text-sm focus:ring-2 focus:ring-yellow-500 outline-none"
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+                            {currentExercise.trackingType === 'duration' && (
+                                <>
+                                    <div className="col-span-6">
+                                        <input
+                                            type="number"
+                                            placeholder="min"
+                                            value={set.duration === 0 ? '' : set.duration}
+                                            onChange={(e) => updateSet(activeExerciseIndex, idx, 'duration', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                            className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono font-bold text-lg focus:ring-2 focus:ring-primary-500 outline-none"
+                                        />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <input
+                                            type="number"
+                                            placeholder="-"
+                                            max={10}
+                                            value={set.rpe || ''}
+                                            onChange={(e) => updateSet(activeExerciseIndex, idx, 'rpe', e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                                            className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono text-sm focus:ring-2 focus:ring-yellow-500 outline-none"
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+                            {currentExercise.trackingType === 'distance_duration' && (
+                                <>
+                                    <div className="col-span-3">
+                                        <input
+                                            type="number"
+                                            placeholder="km"
+                                            value={set.distance === 0 ? '' : set.distance}
+                                            onChange={(e) => updateSet(activeExerciseIndex, idx, 'distance', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                            className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono font-bold text-lg focus:ring-2 focus:ring-primary-500 outline-none"
+                                        />
+                                    </div>
+                                    <div className="col-span-3">
+                                        <input
+                                            type="number"
+                                            placeholder="min"
+                                            value={set.duration === 0 ? '' : set.duration}
+                                            onChange={(e) => updateSet(activeExerciseIndex, idx, 'duration', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                            className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono font-bold text-lg focus:ring-2 focus:ring-primary-500 outline-none"
+                                        />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <input
+                                            type="number"
+                                            placeholder="-"
+                                            max={10}
+                                            value={set.rpe || ''}
+                                            onChange={(e) => updateSet(activeExerciseIndex, idx, 'rpe', e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                                            className="w-full bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-md py-2 text-center font-mono text-sm focus:ring-2 focus:ring-yellow-500 outline-none"
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+
+                            <div className="col-span-3 flex justify-center gap-1">
+                                <button
+                                    onClick={() => updateSet(activeExerciseIndex, idx, 'completed', !set.completed)}
+                                    className={`w-full h-10 rounded-md flex items-center justify-center transition-colors ${set.completed
+                                        ? 'bg-green-500 text-white'
+                                        : 'bg-gray-200 dark:bg-gray-700 text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                                        }`}
+                                >
+                                    <Check size={20} />
+                                </button>
+                                <button
+                                    onClick={() => deleteSet(activeExerciseIndex, idx)}
+                                    className="w-8 h-10 rounded-md flex items-center justify-center text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+
+                    <Button variant="outline" className="w-full border-dashed" onClick={() => handleAddSet(activeExerciseIndex)}>
+                        <Plus size={16} className="mr-2" /> Add Set
+                    </Button>
+                </div>
+
+                {/* Notes */}
+                <div className="mt-6">
+                    <textarea
+                        placeholder="Notes for this exercise..."
+                        className="w-full bg-transparent border-b border-gray-200 dark:border-gray-800 py-2 text-sm focus:border-primary-500 outline-none resize-none text-gray-600 dark:text-gray-300"
+                        rows={2}
+                        value={currentExercise.notes || ''}
+                        onChange={(e) => {
+                            const updatedExercises = [...session.exercises];
+                            updatedExercises[activeExerciseIndex].notes = e.target.value;
+                            setSession({ ...session, exercises: updatedExercises });
+                        }}
+                    />
+                </div>
+            </div>
+
+            {/* Quick Nav Buttons */}
+            <div className="grid grid-cols-2 gap-4 mt-8">
+                <Button
+                    variant="secondary"
+                    disabled={activeExerciseIndex === 0}
+                    onClick={() => setActiveExerciseIndex(prev => prev - 1)}
+                >
+                    Previous
+                </Button>
+                <Button
+                    variant="primary"
+                    disabled={activeExerciseIndex === session.exercises.length - 1}
+                    onClick={() => setActiveExerciseIndex(prev => prev + 1)}
+                >
+                    Next Exercise
+                </Button>
+            </div>
+
+            {/* Body Weight Input at end of list */}
+            {activeExerciseIndex === session.exercises.length - 1 && (
+                <Card className="mt-8 p-4 bg-purple-50 dark:bg-purple-900/10 border-purple-100 dark:border-purple-900/30">
+                    <div className="flex items-center gap-2 mb-2 text-purple-700 dark:text-purple-400 font-bold">
+                        <Scale size={20} /> Track Body Weight
                     </div>
-
-                    {/* Notes */}
-                    <div className="mt-6">
-                        <textarea
-                            placeholder="Notes for this exercise..."
-                            className="w-full bg-transparent border-b border-gray-200 dark:border-gray-800 py-2 text-sm focus:border-primary-500 outline-none resize-none text-gray-600 dark:text-gray-300"
-                            rows={2}
-                            value={currentExercise.notes || ''}
-                            onChange={(e) => {
-                                const updatedExercises = [...session.exercises];
-                                updatedExercises[activeExerciseIndex].notes = e.target.value;
-                                setSession({ ...session, exercises: updatedExercises });
-                            }}
+                    <div className="flex gap-2">
+                        <Input
+                            type="number"
+                            placeholder="Current Weight (kg)"
+                            value={bodyWeight}
+                            onChange={(e) => setBodyWeight(e.target.value)}
                         />
                     </div>
-                </div>
-
-                {/* Quick Nav Buttons */}
-                <div className="grid grid-cols-2 gap-4 mt-8">
-                    <Button
-                        variant="secondary"
-                        disabled={activeExerciseIndex === 0}
-                        onClick={() => setActiveExerciseIndex(prev => prev - 1)}
-                    >
-                        Previous
-                    </Button>
-                    <Button
-                        variant="primary"
-                        disabled={activeExerciseIndex === session.exercises.length - 1}
-                        onClick={() => setActiveExerciseIndex(prev => prev + 1)}
-                    >
-                        Next Exercise
-                    </Button>
-                </div>
-
-                {/* Body Weight Input at end of list */}
-                {activeExerciseIndex === session.exercises.length - 1 && (
-                    <Card className="mt-8 p-4 bg-purple-50 dark:bg-purple-900/10 border-purple-100 dark:border-purple-900/30">
-                        <div className="flex items-center gap-2 mb-2 text-purple-700 dark:text-purple-400 font-bold">
-                            <Scale size={20} /> Track Body Weight
-                        </div>
-                        <div className="flex gap-2">
-                            <Input
-                                type="number"
-                                placeholder="Current Weight (kg)"
-                                value={bodyWeight}
-                                onChange={(e) => setBodyWeight(e.target.value)}
-                            />
-                        </div>
-                        <p className="text-xs text-purple-600/70 mt-1">Log your weight for AI progress tracking.</p>
-                    </Card>
-                )}
-            </div>
+                    <p className="text-xs text-purple-600/70 mt-1">Log your weight for AI progress tracking.</p>
+                </Card>
+            )}
             {/* Discard Confirmation */}
             <ConfirmationModal
                 isOpen={isDiscardModalOpen}
@@ -501,6 +662,74 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                 confirmText="Stop & Save Draft"
                 variant="danger"
             />
+
+            {/* Delete Exercise Confirmation */}
+            <ConfirmationModal
+                isOpen={isDeleteExerciseModalOpen}
+                onClose={() => setIsDeleteExerciseModalOpen(false)}
+                onConfirm={handleDeleteExercise}
+                title="Remove Exercise?"
+                message={`Are you sure you want to remove ${currentExercise?.name} from this workout? This cannot be undone.`}
+                confirmText="Remove"
+                variant="danger"
+            />
+
+            {/* Tracking Settings Modal */}
+            <Modal isOpen={isTrackingSettingsModalOpen} onClose={() => setIsTrackingSettingsModalOpen(false)} title="Configure Columns">
+                <div className="p-4">
+                    <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-4">Select what to track for {currentExercise?.name}:</h3>
+                    <div className="space-y-3">
+                        <button
+                            onClick={() => handleUpdateTrackingType('reps_weight')}
+                            className={`w-full p-4 rounded-xl border-2 flex items-center justify-between ${currentExercise?.trackingType === 'reps_weight' || !currentExercise?.trackingType
+                                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
+                                : 'border-transparent bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                }`}
+                        >
+                            <span className="font-bold">Weight & Reps</span>
+                            {(currentExercise?.trackingType === 'reps_weight' || !currentExercise?.trackingType) && <Check size={20} />}
+                        </button>
+                        <button
+                            onClick={() => handleUpdateTrackingType('reps_only')}
+                            className={`w-full p-4 rounded-xl border-2 flex items-center justify-between ${currentExercise?.trackingType === 'reps_only'
+                                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
+                                : 'border-transparent bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                }`}
+                        >
+                            <span className="font-bold">Reps Only</span>
+                            <span className="text-xs opacity-70">Bodyweight</span>
+                            {currentExercise?.trackingType === 'reps_only' && <Check size={20} />}
+                        </button>
+
+                        <button
+                            onClick={() => handleUpdateTrackingType('duration')}
+                            className={`w-full p-4 rounded-xl border-2 flex items-center justify-between ${currentExercise?.trackingType === 'duration'
+                                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
+                                : 'border-transparent bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                }`}
+                        >
+                            <span className="font-bold">Duration</span>
+                            <span className="text-xs opacity-70">Time (min)</span>
+                            {currentExercise?.trackingType === 'duration' && <Check size={20} />}
+                        </button>
+
+                        <button
+                            onClick={() => handleUpdateTrackingType('distance_duration')}
+                            className={`w-full p-4 rounded-xl border-2 flex items-center justify-between ${currentExercise?.trackingType === 'distance_duration'
+                                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
+                                : 'border-transparent bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                }`}
+                        >
+                            <span className="font-bold">Cardio</span>
+                            <span className="text-xs opacity-70">Dist (km) + Time</span>
+                            {currentExercise?.trackingType === 'distance_duration' && <Check size={20} />}
+                        </button>
+                    </div>
+                    <div className="mt-6 flex justify-end">
+                        <Button variant="ghost" onClick={() => setIsTrackingSettingsModalOpen(false)}>Cancel</Button>
+                    </div>
+                </div>
+            </Modal>
 
             {/* Add Exercise Modal */}
             <Modal isOpen={isAddExerciseModalOpen} onClose={() => setIsAddExerciseModalOpen(false)} title="Add Exercise">
@@ -521,13 +750,31 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                                 disabled={!customExerciseName.trim()}
                                 onClick={() => {
                                     if (customExerciseName.trim()) {
-                                        handleAddExercise(customExerciseName.trim());
+                                        handleAddExercise(customExerciseName.trim(), customTrackingType);
                                         setCustomExerciseName('');
                                     }
                                 }}
                             >
                                 Add
                             </Button>
+                        </div>
+                        {/* Tracking Type Functionality */}
+                        <div className="mt-4 mb-4">
+                            <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Tracking Type</label>
+                            <div className="bg-white dark:bg-dark-card rounded-lg p-1 flex gap-1 border border-gray-200 dark:border-gray-700">
+                                <button onClick={() => setCustomTrackingType('reps_weight')} className={`flex-1 py-1.5 text-xs font-medium rounded ${customTrackingType === 'reps_weight' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'}`}>
+                                    Weight & Reps
+                                </button>
+                                <button onClick={() => setCustomTrackingType('reps_only')} className={`flex-1 py-1.5 text-xs font-medium rounded ${customTrackingType === 'reps_only' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'}`}>
+                                    Reps Only
+                                </button>
+                                <button onClick={() => setCustomTrackingType('duration')} className={`flex-1 py-1.5 text-xs font-medium rounded ${customTrackingType === 'duration' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'}`}>
+                                    Duration
+                                </button>
+                                <button onClick={() => setCustomTrackingType('distance_duration')} className={`flex-1 py-1.5 text-xs font-medium rounded ${customTrackingType === 'distance_duration' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'}`}>
+                                    Cardio
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -556,7 +803,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                                 {COMMON_EXERCISES[selectedMuscle].map(ex => (
                                     <button
                                         key={ex.name}
-                                        onClick={() => handleAddExercise(ex.name)}
+                                        onClick={() => handleAddExercise(ex.name, ex.defaultTrackingType || 'reps_weight')}
                                         className="w-full text-left p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex justify-between items-center group"
                                     >
                                         <div>
@@ -571,6 +818,6 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                     )}
                 </div>
             </Modal>
-        </div>
+        </div >
     );
 };

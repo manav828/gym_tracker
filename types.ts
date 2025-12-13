@@ -1,9 +1,13 @@
 // Domain Models
 
+export type TrackingType = 'reps_weight' | 'reps_only' | 'duration' | 'distance_duration';
+
 export interface Set {
   id: string;
   reps: number;
   weight: number;
+  distance?: number; // km
+  duration?: number; // minutes (for cardio/plank logs)
   completed: boolean;
   rpe?: number; // Rate of Perceived Exertion (1-10)
 }
@@ -16,6 +20,7 @@ export interface Exercise {
   notes?: string;
   defaultSets: number;
   defaultReps: number;
+  trackingType?: TrackingType;
 }
 
 export interface RoutineExercise extends Exercise {
@@ -37,6 +42,7 @@ export interface CompletedExercise {
   name: string;
   sets: Set[];
   notes?: string;
+  trackingType?: TrackingType;
 }
 
 export interface WorkoutSession {
