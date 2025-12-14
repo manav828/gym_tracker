@@ -159,7 +159,15 @@ export const DatabaseService = {
 
   // --- Nutrition & Water ---
 
-  logFood: async (log: Omit<FoodLog, 'id'>) => {
+  // Alias for backward compatibility or clarity
+  addFoodLog: async (log: Omit<FoodLog, 'id' | 'user_id'> & { notes?: string }) => {
+    // We need to match the signature expected by Dashboard.tsx which includes 'notes' and excludes 'user_id'
+    // The existing logFood expects Omit<FoodLog, 'id'> which includes user_id? No, FoodLog usually has user_id.
+    // internal logFood grabs user_id from auth.
+    return DatabaseService.logFood(log);
+  },
+
+  logFood: async (log: Omit<FoodLog, 'id'> | any) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 

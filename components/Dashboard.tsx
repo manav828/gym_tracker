@@ -239,8 +239,7 @@ const NutritionCard: React.FC<{ logs: FoodLog[]; onLogReq: () => void; profile: 
     const today = new Date().toISOString().split('T')[0];
     const todayLogs = logs.filter(l => l.date === today);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [scanResult, setScanResult] = useState<any>(null);
-    const [isReviewOpen, setIsReviewOpen] = useState(false);
+
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const totals = todayLogs.reduce((acc, log) => ({
@@ -257,12 +256,21 @@ const NutritionCard: React.FC<{ logs: FoodLog[]; onLogReq: () => void; profile: 
         fats: profile?.fatsGoal || 70
     };
 
+    const [scanResult, setScanResult] = useState<any>(null);
+    const [isReviewOpen, setIsReviewOpen] = useState(false);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [selectedMealType, setSelectedMealType] = useState<string>('Lunch'); // Default meal type
+
     const calPct = Math.min(100, Math.round((totals.calories / goals.calories) * 100));
 
     // Handle File Upload
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        // Set preview directly
+        const objectUrl = URL.createObjectURL(file);
+        setPreviewUrl(objectUrl);
 
         setIsAnalyzing(true);
         try {
@@ -284,25 +292,39 @@ const NutritionCard: React.FC<{ logs: FoodLog[]; onLogReq: () => void; profile: 
     };
 
     const confirmScan = async () => {
-        if (!scanResult) return;
+        if (!scanResult || !scanResult.items) return;
 
-        await DatabaseService.addFoodLog({
-            date: new Date().toISOString().split('T')[0],
-            mealType: 'Snack', // Default, user can change if we add a select
-            foodName: scanResult.food_name,
-            calories: scanResult.calories,
-            protein: scanResult.protein,
-            carbs: scanResult.carbs,
-            fats: scanResult.fats,
-            quantity: 1,
-            unit: 'serving',
-            notes: scanResult.notes
-        });
+        for (const item of scanResult.items) {
+            await DatabaseService.addFoodLog({
+                date: new Date().toISOString().split('T')[0],
+                mealType: selectedMealType as any,
+                foodName: item.food_name,
+                calories: item.calories,
+                protein: item.protein,
+                carbs: item.carbs,
+                fats: item.fats,
+                quantity: item.quantity || 1,
+                unit: item.unit || 'serving',
+                notes: scanResult.notes
+            });
+        }
 
         setIsReviewOpen(false);
         setScanResult(null);
+        setPreviewUrl(null);
+        setIsReviewOpen(false);
+        setScanResult(null);
+        setPreviewUrl(null);
         onRefresh();
     };
+
+    // Calculate totals for Review Modal
+    const reviewTotals = scanResult?.items?.reduce((acc: any, item: any) => ({
+        calories: acc.calories + (item.calories || 0),
+        protein: acc.protein + (item.protein || 0),
+        carbs: acc.carbs + (item.carbs || 0),
+        fats: acc.fats + (item.fats || 0)
+    }), { calories: 0, protein: 0, carbs: 0, fats: 0 }) || { calories: 0, protein: 0, carbs: 0, fats: 0 };
 
     // Mini Component for Macro
     const MacroItem = ({ label, value, goal, color }: any) => (
@@ -376,54 +398,137 @@ const NutritionCard: React.FC<{ logs: FoodLog[]; onLogReq: () => void; profile: 
 
             {/* Scan Review Modal */}
             <Modal isOpen={isReviewOpen} onClose={() => setIsReviewOpen(false)} title="Review Scan">
-                {scanResult && (
+                {scanResult && scanResult.items && (
                     <div className="space-y-4">
-                        <div className="relative h-40 bg-gray-100 dark:bg-white/5 rounded-2xl overflow-hidden flex items-center justify-center mb-4">
-                            <Camera size={48} className="text-gray-300 dark:text-gray-600" />
+                        {previewUrl && (
+                            <div className="relative h-48 bg-black rounded-2xl overflow-hidden mb-4">
+                                <img src={previewUrl} alt="Scan" className="w-full h-full object-contain" />
+                                <div className="absolute inset-x-0 bottom-0 bg-black/60 text-white text-xs p-2 text-center backdrop-blur-sm">
+                                    {scanResult.notes}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Meal Type Selector */}
+                        <div className="flex gap-2 p-1 bg-gray-100 dark:bg-white/5 rounded-lg">
+                            {['Breakfast', 'Lunch', 'Dinner', 'Snack'].map(type => (
+                                <button
+                                    key={type}
+                                    onClick={() => setSelectedMealType(type)}
+                                    className={`flex-1 py-1 px-2 text-xs font-bold rounded-md transition-all ${selectedMealType === type
+                                        ? 'bg-white dark:bg-gray-700 shadow-sm text-emerald-600 dark:text-emerald-400'
+                                        : 'text-gray-500 hover:text-gray-700'
+                                        }`}
+                                >
+                                    {type}
+                                </button>
+                            ))}
                         </div>
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 uppercase">Food Name</label>
-                                <input
-                                    className="w-full bg-slate-50 dark:bg-black/20 border-b border-gray-200 dark:border-gray-800 p-2 font-bold text-lg"
-                                    value={scanResult.food_name}
-                                    onChange={(e) => setScanResult({ ...scanResult, food_name: e.target.value })}
-                                />
+                        {/* Totals Summary */}
+                        <div className="flex justify-between bg-emerald-50 dark:bg-emerald-900/20 p-3 rounded-xl border border-emerald-100 dark:border-emerald-900/30">
+                            <div className="text-center">
+                                <div className="text-[10px] text-gray-500 uppercase font-bold">Total Cals</div>
+                                <div className="text-lg font-black text-emerald-700 dark:text-emerald-400">{reviewTotals.calories}</div>
                             </div>
+                            <div className="text-center">
+                                <div className="text-[10px] text-gray-500 uppercase font-bold">Protein</div>
+                                <div className="text-sm font-bold text-blue-600 dark:text-blue-400">{reviewTotals.protein}g</div>
+                            </div>
+                            <div className="text-center">
+                                <div className="text-[10px] text-gray-500 uppercase font-bold">Carbs</div>
+                                <div className="text-sm font-bold text-green-600 dark:text-green-400">{reviewTotals.carbs}g</div>
+                            </div>
+                            <div className="text-center">
+                                <div className="text-[10px] text-gray-500 uppercase font-bold">Fats</div>
+                                <div className="text-sm font-bold text-purple-600 dark:text-purple-400">{reviewTotals.fats}g</div>
+                            </div>
+                        </div>
 
-                            <div className="grid grid-cols-4 gap-2">
-                                <div>
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Cals</label>
-                                    <div className="font-black text-xl">{scanResult.calories}</div>
+                        <div className="max-h-[50vh] overflow-y-auto space-y-3 pr-1">
+                            {scanResult.items.map((item: any, idx: number) => (
+                                <div key={idx} className="bg-slate-50 dark:bg-white/5 p-3 rounded-xl border border-slate-100 dark:border-white/5">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <input
+                                            className="bg-transparent border-none font-bold text-gray-900 dark:text-white w-full focus:ring-0 p-0"
+                                            value={item.food_name}
+                                            onChange={(e) => {
+                                                const newItems = [...scanResult.items];
+                                                newItems[idx].food_name = e.target.value;
+                                                setScanResult({ ...scanResult, items: newItems });
+                                            }}
+                                        />
+                                        <button
+                                            onClick={() => {
+                                                const newItems = scanResult.items.filter((_: any, i: number) => i !== idx);
+                                                setScanResult({ ...scanResult, items: newItems });
+                                            }}
+                                            className="text-gray-400 hover:text-red-500"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        <div>
+                                            <label className="text-[9px] font-bold text-gray-400 uppercase block">Cals</label>
+                                            <input
+                                                type="number"
+                                                className="w-full bg-transparent p-0 text-sm font-black"
+                                                value={item.calories}
+                                                onChange={(e) => {
+                                                    const newItems = [...scanResult.items];
+                                                    newItems[idx].calories = parseFloat(e.target.value) || 0;
+                                                    setScanResult({ ...scanResult, items: newItems });
+                                                }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[9px] font-bold text-blue-500 uppercase block">Pro</label>
+                                            <input
+                                                type="number"
+                                                className="w-full bg-transparent p-0 text-sm font-bold"
+                                                value={item.protein}
+                                                onChange={(e) => {
+                                                    const newItems = [...scanResult.items];
+                                                    newItems[idx].protein = parseFloat(e.target.value) || 0;
+                                                    setScanResult({ ...scanResult, items: newItems });
+                                                }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[9px] font-bold text-green-500 uppercase block">Carb</label>
+                                            <input
+                                                type="number"
+                                                className="w-full bg-transparent p-0 text-sm font-bold"
+                                                value={item.carbs}
+                                                onChange={(e) => {
+                                                    const newItems = [...scanResult.items];
+                                                    newItems[idx].carbs = parseFloat(e.target.value) || 0;
+                                                    setScanResult({ ...scanResult, items: newItems });
+                                                }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[9px] font-bold text-purple-500 uppercase block">Fat</label>
+                                            <input
+                                                type="number"
+                                                className="w-full bg-transparent p-0 text-sm font-bold"
+                                                value={item.fats}
+                                                onChange={(e) => {
+                                                    const newItems = [...scanResult.items];
+                                                    newItems[idx].fats = parseFloat(e.target.value) || 0;
+                                                    setScanResult({ ...scanResult, items: newItems });
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-blue-500 uppercase">Prot</label>
-                                    <div className="font-bold">{scanResult.protein}g</div>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-green-500 uppercase">Carb</label>
-                                    <div className="font-bold">{scanResult.carbs}g</div>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-purple-500 uppercase">Fat</label>
-                                    <div className="font-bold">{scanResult.fats}g</div>
-                                </div>
-                            </div>
+                            ))}
+                        </div>
 
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 uppercase">Notes (AI)</label>
-                                <textarea
-                                    className="w-full bg-slate-50 dark:bg-black/20 rounded-xl p-3 text-sm min-h-[60px]"
-                                    value={scanResult.notes}
-                                    onChange={(e) => setScanResult({ ...scanResult, notes: e.target.value })}
-                                />
-                            </div>
-
-                            <div className="flex gap-3 pt-2">
-                                <Button variant="ghost" onClick={() => setIsReviewOpen(false)} className="flex-1">Discard</Button>
-                                <Button onClick={confirmScan} className="flex-1 bg-orange-500 hover:bg-orange-600">Save Log</Button>
-                            </div>
+                        <div className="flex gap-3 pt-2">
+                            <Button variant="ghost" onClick={() => setIsReviewOpen(false)} className="flex-1">Discard</Button>
+                            <Button onClick={confirmScan} className="flex-1 bg-orange-500 hover:bg-orange-600">Save All Logs</Button>
                         </div>
                     </div>
                 )}
@@ -454,7 +559,7 @@ export const HomeScreen: React.FC<{
 
     useEffect(() => {
         DatabaseService.getAllWaterLogs().then(setWaterLogs);
-        DatabaseService.getFoodLogs().then(setFoodLogs);
+        DatabaseService.getFoodLogs(new Date().toISOString().split('T')[0]).then(setFoodLogs);
     }, [onRefresh]); // Simple refresh trigger
 
     const handleAddWater = async (amount: number) => {

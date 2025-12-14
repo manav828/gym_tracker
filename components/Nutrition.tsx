@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Card, Input, Modal, ConfirmationModal } from './Shared';
-import { Plus, Search, Trash2, Droplets, Flame, X, Edit2, ChevronLeft, ChevronRight, Calendar, ArrowLeft, Camera, Loader2 } from 'lucide-react';
+import { Plus, Search, Trash2, Droplets, Flame, X, Edit2, ChevronLeft, ChevronRight, Calendar, ArrowLeft, Camera, Loader2, Apple, ChevronDown } from 'lucide-react';
 import { DatabaseService } from '../services/databaseService';
 import { GeminiService } from '../services/geminiService';
 import { FoodItem, FoodLog, UserProfile, WaterLog } from '../types';
@@ -103,6 +103,52 @@ export const NutritionDashboard: React.FC<NutritionDashboardProps> = ({ profile,
         );
     };
 
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsAnalyzing(true);
+        try {
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                const base64 = reader.result as string;
+                const result = await GeminiService.analyzeFoodImage(base64);
+                if (result) {
+                    setScanResult(result);
+                    setIsReviewOpen(true);
+                }
+                setIsAnalyzing(false);
+            };
+            reader.readAsDataURL(file);
+        } catch (error) {
+            console.error("Scan failed", error);
+            setIsAnalyzing(false);
+        }
+    };
+
+    const confirmScan = async () => {
+        if (!scanResult || !scanResult.items) return;
+
+        for (const item of scanResult.items) {
+            await DatabaseService.addFoodLog({
+                date: new Date().toISOString().split('T')[0],
+                mealType: 'Snack',
+                foodName: item.food_name,
+                calories: item.calories,
+                protein: item.protein,
+                carbs: item.carbs,
+                fats: item.fats,
+                quantity: item.quantity || 1,
+                unit: item.unit || 'serving',
+                notes: scanResult.notes
+            });
+        }
+
+        setIsReviewOpen(false);
+        setScanResult(null);
+        loadData();
+    };
+
     return (
         <div className="space-y-4">
             {/* Main Nutrition Card */}
@@ -192,54 +238,99 @@ export const NutritionDashboard: React.FC<NutritionDashboardProps> = ({ profile,
 
             {/* Scan Review Modal */}
             <Modal isOpen={isReviewOpen} onClose={() => setIsReviewOpen(false)} title="Review Scan">
-                {scanResult && (
+                {scanResult && scanResult.items && (
                     <div className="space-y-4">
-                        <div className="relative h-40 bg-gray-100 dark:bg-white/5 rounded-2xl overflow-hidden flex items-center justify-center mb-4">
+                        <div className="relative h-32 bg-gray-100 dark:bg-white/5 rounded-2xl overflow-hidden flex items-center justify-center mb-4">
                             <Camera size={48} className="text-gray-300 dark:text-gray-600" />
+                            <div className="absolute inset-x-0 bottom-0 bg-black/50 text-white text-xs p-2 text-center backdrop-blur-sm">
+                                {scanResult.notes}
+                            </div>
                         </div>
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 uppercase">Food Name</label>
-                                <input
-                                    className="w-full bg-slate-50 dark:bg-black/20 border-b border-gray-200 dark:border-gray-800 p-2 font-bold text-lg"
-                                    value={scanResult.food_name}
-                                    onChange={(e) => setScanResult({ ...scanResult, food_name: e.target.value })}
-                                />
-                            </div>
+                        <div className="max-h-[50vh] overflow-y-auto space-y-3 pr-1">
+                            {scanResult.items.map((item: any, idx: number) => (
+                                <div key={idx} className="bg-slate-50 dark:bg-white/5 p-3 rounded-xl border border-slate-100 dark:border-white/5">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <input
+                                            className="bg-transparent border-none font-bold text-gray-900 dark:text-white w-full focus:ring-0 p-0"
+                                            value={item.food_name}
+                                            onChange={(e) => {
+                                                const newItems = [...scanResult.items];
+                                                newItems[idx].food_name = e.target.value;
+                                                setScanResult({ ...scanResult, items: newItems });
+                                            }}
+                                        />
+                                        <button
+                                            onClick={() => {
+                                                const newItems = scanResult.items.filter((_: any, i: number) => i !== idx);
+                                                setScanResult({ ...scanResult, items: newItems });
+                                            }}
+                                            className="text-gray-400 hover:text-red-500"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        <div>
+                                            <label className="text-[9px] font-bold text-gray-400 uppercase block">Cals</label>
+                                            <input
+                                                type="number"
+                                                className="w-full bg-transparent p-0 text-sm font-black"
+                                                value={item.calories}
+                                                onChange={(e) => {
+                                                    const newItems = [...scanResult.items];
+                                                    newItems[idx].calories = parseFloat(e.target.value) || 0;
+                                                    setScanResult({ ...scanResult, items: newItems });
+                                                }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[9px] font-bold text-blue-500 uppercase block">Pro</label>
+                                            <input
+                                                type="number"
+                                                className="w-full bg-transparent p-0 text-sm font-bold"
+                                                value={item.protein}
+                                                onChange={(e) => {
+                                                    const newItems = [...scanResult.items];
+                                                    newItems[idx].protein = parseFloat(e.target.value) || 0;
+                                                    setScanResult({ ...scanResult, items: newItems });
+                                                }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[9px] font-bold text-green-500 uppercase block">Carb</label>
+                                            <input
+                                                type="number"
+                                                className="w-full bg-transparent p-0 text-sm font-bold"
+                                                value={item.carbs}
+                                                onChange={(e) => {
+                                                    const newItems = [...scanResult.items];
+                                                    newItems[idx].carbs = parseFloat(e.target.value) || 0;
+                                                    setScanResult({ ...scanResult, items: newItems });
+                                                }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[9px] font-bold text-purple-500 uppercase block">Fat</label>
+                                            <input
+                                                type="number"
+                                                className="w-full bg-transparent p-0 text-sm font-bold"
+                                                value={item.fats}
+                                                onChange={(e) => {
+                                                    const newItems = [...scanResult.items];
+                                                    newItems[idx].fats = parseFloat(e.target.value) || 0;
+                                                    setScanResult({ ...scanResult, items: newItems });
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
 
-                            <div className="grid grid-cols-4 gap-2">
-                                <div>
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Cals</label>
-                                    <div className="font-black text-xl">{scanResult.calories}</div>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-blue-500 uppercase">Prot</label>
-                                    <div className="font-bold">{scanResult.protein}g</div>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-green-500 uppercase">Carb</label>
-                                    <div className="font-bold">{scanResult.carbs}g</div>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-purple-500 uppercase">Fat</label>
-                                    <div className="font-bold">{scanResult.fats}g</div>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 uppercase">Notes (AI)</label>
-                                <textarea
-                                    className="w-full bg-slate-50 dark:bg-black/20 rounded-xl p-3 text-sm min-h-[60px]"
-                                    value={scanResult.notes}
-                                    onChange={(e) => setScanResult({ ...scanResult, notes: e.target.value })}
-                                />
-                            </div>
-
-                            <div className="flex gap-3 pt-2">
-                                <Button variant="ghost" onClick={() => setIsReviewOpen(false)} className="flex-1">Discard</Button>
-                                <Button onClick={confirmScan} className="flex-1 bg-orange-500 hover:bg-orange-600">Save Log</Button>
-                            </div>
+                        <div className="flex gap-3 pt-2">
+                            <Button variant="ghost" onClick={() => setIsReviewOpen(false)} className="flex-1">Discard</Button>
+                            <Button onClick={confirmScan} className="flex-1 bg-orange-500 hover:bg-orange-600">Save All Logs</Button>
                         </div>
                     </div>
                 )}
@@ -261,19 +352,132 @@ export const NutritionScreen: React.FC<NutritionScreenProps> = ({ profile }) => 
     const [editingLog, setEditingLog] = useState<FoodLog | undefined>(undefined);
     const [deleteId, setDeleteId] = useState<string | null>(null);
 
+    // Scanning State
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [scanResult, setScanResult] = useState<any>(null);
+    const [isReviewOpen, setIsReviewOpen] = useState(false);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [selectedMealType, setSelectedMealType] = useState<string>('Lunch'); // Default meal type
+
+    // Collapsible state
+    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+    // Batch Edit State
+    const [editingGroup, setEditingGroup] = useState<{ type: string, items: FoodLog[] } | null>(null);
+    const [editDeleteIds, setEditDeleteIds] = useState<Set<string>>(new Set());
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
     useEffect(() => {
         loadData();
     }, [selectedDate]);
+
+    // Auto-suggest meal type based on time
+    useEffect(() => {
+        const hour = new Date().getHours();
+        let suggested = 'Snack';
+        if (hour >= 5 && hour < 11) suggested = 'Breakfast';
+        else if (hour >= 11 && hour < 16) suggested = 'Lunch';
+        else if (hour >= 16 && hour < 19) suggested = 'Snack';
+        else if (hour >= 19 && hour < 23) suggested = 'Dinner';
+        setSelectedMealType(suggested);
+        // Also set for manual modal if accessible 
+        // (This effect runs on mount, so it sets initial state)
+    }, []);
 
     const loadData = async () => {
         const foods = await DatabaseService.getFoodLogs(selectedDate);
         setFoodLogs(foods);
     };
 
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Set preview directly
+        const objectUrl = URL.createObjectURL(file);
+        setPreviewUrl(objectUrl);
+
+        setIsAnalyzing(true);
+        try {
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                const base64 = reader.result as string;
+                const result = await GeminiService.analyzeFoodImage(base64);
+                if (result) {
+                    setScanResult(result);
+                    setIsReviewOpen(true);
+                }
+                setIsAnalyzing(false);
+            };
+            reader.readAsDataURL(file);
+        } catch (error) {
+            console.error("Scan failed", error);
+            setIsAnalyzing(false);
+        }
+    };
+
+    const confirmScan = async () => {
+        if (!scanResult || !scanResult.items) return;
+
+        for (const item of scanResult.items) {
+            await DatabaseService.addFoodLog({
+                date: selectedDate,
+                mealType: selectedMealType as any,
+                foodName: item.food_name,
+                calories: item.calories,
+                protein: item.protein,
+                carbs: item.carbs,
+                fats: item.fats,
+                quantity: item.quantity || 1,
+                unit: item.unit || 'serving',
+                notes: scanResult.notes
+            });
+        }
+
+        setIsReviewOpen(false);
+        setScanResult(null);
+        setPreviewUrl(null);
+        loadData();
+    };
+
+    // Calculate totals for Review Modal
+    const reviewTotals = scanResult?.items?.reduce((acc: any, item: any) => ({
+        calories: acc.calories + (item.calories || 0),
+        protein: acc.protein + (item.protein || 0),
+        carbs: acc.carbs + (item.carbs || 0),
+        fats: acc.fats + (item.fats || 0)
+    }), { calories: 0, protein: 0, carbs: 0, fats: 0 }) || { calories: 0, protein: 0, carbs: 0, fats: 0 };
+
     const handleDeleteLog = async () => {
         if (!deleteId) return;
         await DatabaseService.deleteFoodLog(deleteId);
         setDeleteId(null);
+        loadData();
+    };
+
+    const handleBatchSave = async () => {
+        if (!editingGroup) return;
+
+        // 1. Process Deletions
+        for (const id of Array.from(editDeleteIds) as string[]) {
+            await DatabaseService.deleteFoodLog(id);
+        }
+
+        // 2. Process Updates / Moves
+        const itemsToSave = editingGroup.items.filter(item => !editDeleteIds.has(item.id));
+        for (const item of itemsToSave) {
+            if (item.id) {
+                await DatabaseService.updateFoodLog({
+                    ...item,
+                    mealType: editingGroup.type as any
+                });
+            }
+        }
+
+        setEditingGroup(null);
+        setEditDeleteIds(new Set());
         loadData();
     };
 
@@ -347,12 +551,38 @@ export const NutritionScreen: React.FC<NutritionScreenProps> = ({ profile }) => 
 
     return (
         <div className="pb-24 min-h-screen bg-gray-50 dark:bg-dark-bg">
-            {/* Header */}
+            {/* Floating Action Button (FAB) */}
+            <div className="fixed bottom-24 right-6 z-30">
+                <button
+                    onClick={() => { setEditingLog(undefined); setIsFoodModalOpen(true); }}
+                    className="w-14 h-14 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full shadow-xl shadow-emerald-500/30 flex items-center justify-center transition-transform active:scale-95"
+                >
+                    <Plus size={28} />
+                </button>
+            </div>
+
+            {/* Modals */}
             <div className="bg-white dark:bg-dark-card p-4 flex items-center gap-3 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-20">
                 <button onClick={() => window.location.hash = '#home'} className="p-2 -ml-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
                     <ArrowLeft size={20} />
                 </button>
                 <h1 className="text-xl font-bold text-gray-900 dark:text-white">Nutrition Journal</h1>
+                <div className="ml-auto flex gap-2">
+                    <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        ref={fileInputRef}
+                        onChange={handleFileSelect}
+                    />
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isAnalyzing}
+                        className="p-2 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-100 disabled:opacity-50"
+                    >
+                        {isAnalyzing ? <Loader2 size={20} className="animate-spin" /> : <Camera size={20} />}
+                    </button>
+                </div>
             </div>
 
             <HorizontalCalendar />
@@ -388,64 +618,332 @@ export const NutritionScreen: React.FC<NutritionScreenProps> = ({ profile }) => 
                     <Plus size={22} className="mr-2" /> Log Food
                 </Button>
 
-                {/* Meals List */}
-                <div className="space-y-4">
-                    {logsByMeal.length === 0 ? (
-                        <div className="text-center py-12">
-                            <div className="w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
-                                <Search size={32} />
-                            </div>
-                            <p className="text-gray-500 dark:text-gray-400 font-medium">No meals logged for this day.</p>
-                            <p className="text-sm text-gray-400 mt-1">Tap 'Log Food' to add breakfast, lunch, or snacks.</p>
-                        </div>
-                    ) : (
-                        logsByMeal.map(group => (
-                            <div key={group.type} className="space-y-3">
-                                <h3 className="font-bold text-gray-400 text-xs uppercase tracking-wider pl-1">{group.type}</h3>
-                                <div className="bg-white dark:bg-dark-card rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
-                                    {group.items.map((log, i) => (
-                                        <div key={log.id} className={`p-4 flex justify-between items-center group hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors ${i < group.items.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : ''}`}>
-                                            <div>
-                                                <div className="font-semibold text-gray-900 dark:text-white text-base">{log.foodName}</div>
-                                                <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
-                                                    <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400 font-medium">{log.quantity}x {log.unit}</span>
-                                                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">{Math.round(log.calories)} kcal</span>
+                {/* Food Logs List */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {(Object.entries(
+                        foodLogs.reduce((acc, log) => {
+                            const type = log.mealType || 'Other';
+                            if (!acc[type]) acc[type] = [];
+                            acc[type].push(log);
+                            return acc;
+                        }, {} as Record<string, FoodLog[]>)
+                    ) as [string, FoodLog[]][])
+                        .sort(([a], [b]) => {
+                            // Order: Breakfast, Lunch, Dinner, Snack
+                            const order: Record<string, number> = { Breakfast: 1, Lunch: 2, Dinner: 3, Snack: 4 };
+                            return (order[a] || 99) - (order[b] || 99);
+                        })
+                        .map(([type, logs]) => {
+                            const totalCal = Math.round(logs.reduce((sum, l) => sum + l.calories, 0));
+                            const totalPro = Math.round(logs.reduce((sum, l) => sum + l.protein, 0));
+                            const totalCarb = Math.round(logs.reduce((sum, l) => sum + l.carbs, 0));
+                            const totalFat = Math.round(logs.reduce((sum, l) => sum + l.fats, 0));
+                            const itemCount = logs.reduce((sum, l) => sum + l.quantity, 0); // or logs.length? User said '7 items' - implies count of distinct entries usually. Let's use logs.length for 'items'.
+
+                            return (
+                                <div key={type} className="bg-white dark:bg-[#161B22] border border-gray-100 dark:border-white/5 rounded-xl overflow-hidden shadow-sm mb-3">
+                                    {/* Meal Header */}
+                                    <div
+                                        className="flex flex-col px-4 py-3 cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+                                        onClick={() => setCollapsed(prev => ({ ...prev, [type]: !prev[type] }))}
+                                    >
+                                        <div className="flex justify-between items-start">
+                                            {/* Top Row: Title & Count */}
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="text-[#111827] dark:text-white font-bold text-base">{type}</h3>
+                                                <span className="text-gray-400 dark:text-gray-500">•</span>
+                                                <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">{logs.length} items</span>
+                                            </div>
+
+                                            {/* Icons */}
+                                            <div className="flex items-center gap-3">
+                                                <button
+                                                    className="p-1.5 text-[#9CA3AF] hover:text-[#111827] dark:hover:text-white transition-colors"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setEditingGroup({ type, items: JSON.parse(JSON.stringify(logs)) });
+                                                        setEditDeleteIds(new Set());
+                                                    }}
+                                                >
+                                                    <Edit2 size={14} />
+                                                </button>
+                                                <button
+                                                    className="text-emerald-500 hover:text-emerald-600 transition-colors"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setEditingLog(undefined);
+                                                        setIsFoodModalOpen(true);
+                                                    }}
+                                                >
+                                                    <Plus size={18} />
+                                                </button>
+                                                <div className={`text-gray-400 transition-transform duration-200 ${!collapsed[type] ? 'rotate-180' : ''}`}>
+                                                    <ChevronDown size={18} />
                                                 </div>
                                             </div>
-                                            <div className="flex gap-2">
-                                                <button onClick={() => { setEditingLog(log); setIsFoodModalOpen(true); }} className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full transition-colors">
-                                                    <Edit2 size={16} />
-                                                </button>
-                                                <button onClick={() => setDeleteId(log.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors">
-                                                    <Trash2 size={16} />
-                                                </button>
+                                        </div>
+
+                                        {/* Bottom Row: Macros */}
+                                        <div className="flex items-center gap-3 mt-1 text-xs">
+                                            <span className="text-emerald-500 font-bold">{totalCal} kcal</span>
+                                            <span className="text-gray-300 dark:text-gray-700">|</span>
+                                            <div className="flex gap-2 text-gray-500 dark:text-gray-400">
+                                                <span>P {totalPro}g</span>
+                                                <span>C {totalCarb}g</span>
+                                                <span>F {totalFat}g</span>
                                             </div>
                                         </div>
-                                    ))}
-                                    <div className="bg-gray-50 dark:bg-gray-800/50 px-4 py-2 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center text-xs text-gray-500 font-medium">
-                                        <span>Total</span>
-                                        <span>{Math.round(group.items.reduce((a, b) => a + b.calories, 0))} kcal</span>
                                     </div>
+
+                                    {/* Expanded List */}
+                                    {!collapsed[type] && (
+                                        <div className="border-t border-gray-100 dark:border-white/5 bg-white dark:bg-[#161B22]">
+                                            {(expandedGroups[type] ? logs : logs.slice(0, 3)).map((log, idx) => {
+                                                const maxMacro = Math.max(log.protein, log.carbs, log.fats);
+                                                let macroDisplay = null;
+
+                                                if (maxMacro > 0) {
+                                                    if (maxMacro === log.protein) macroDisplay = <span className="text-blue-500 bg-blue-50 dark:bg-blue-900/10 text-[10px] font-bold px-1.5 py-0.5 rounded-md">P {Math.round(log.protein)}g</span>;
+                                                    else if (maxMacro === log.carbs) macroDisplay = <span className="text-blue-500 bg-blue-50 dark:bg-blue-900/10 text-[10px] font-bold px-1.5 py-0.5 rounded-md">C {Math.round(log.carbs)}g</span>;
+                                                    else macroDisplay = <span className="text-orange-500 bg-orange-50 dark:bg-orange-900/10 text-[10px] font-bold px-1.5 py-0.5 rounded-md">F {Math.round(log.fats)}g</span>;
+                                                }
+
+                                                return (
+                                                    <div
+                                                        key={log.id}
+                                                        className={`py-3 px-4 hover:bg-[#F7F8FA] dark:hover:bg-white/5 transition-colors group relative ${idx !== logs.length - 1 ? 'border-b border-gray-100 dark:border-white/5' : ''}`}
+                                                    >
+                                                        <div className="flex justify-between items-start mb-1">
+                                                            <div className="font-bold text-[#111827] dark:text-[#E5E7EB] text-sm">{log.foodName}</div>
+                                                            <div className="font-bold text-[#111827] dark:text-[#E5E7EB] text-sm">
+                                                                {Math.round(log.calories)} <span className="text-xs font-normal text-gray-400">kcal</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex justify-between items-center">
+                                                            <div className="text-xs text-gray-500 dark:text-gray-400">{log.quantity} {log.unit}</div>
+                                                            <div>{macroDisplay}</div>
+                                                        </div>
+                                                        {/* Hidden Trash */}
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); setDeleteId(log.id); }}
+                                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-white dark:bg-[#161B22] shadow-sm border border-gray-100 dark:border-gray-700 rounded-full text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+
+                                            {/* View More Footer */}
+                                            {logs.length > 3 && !expandedGroups[type] && (
+                                                <button
+                                                    onClick={() => setExpandedGroups(prev => ({ ...prev, [type]: true }))}
+                                                    className="w-full py-3 text-xs font-bold text-gray-500 hover:text-emerald-600 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors uppercase tracking-wide border-t border-gray-100 dark:border-white/5"
+                                                >
+                                                    View {logs.length - 3} More Items
+                                                </button>
+                                            )}
+                                            {logs.length > 3 && expandedGroups[type] && (
+                                                <button
+                                                    onClick={() => setExpandedGroups(prev => ({ ...prev, [type]: false }))}
+                                                    className="w-full py-3 text-xs font-bold text-gray-500 hover:text-emerald-600 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors uppercase tracking-wide border-t border-gray-100 dark:border-white/5"
+                                                >
+                                                    Show Less
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
+                            );
+                        })}
+
+                    {foodLogs.length === 0 && (
+                        <div className="text-center py-12">
+                            <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
+                                <Apple size={32} />
                             </div>
-                        ))
+                            <p className="text-gray-400 dark:text-gray-600 font-medium">No food logs for this day</p>
+                        </div>
                     )}
                 </div>
             </div>
 
+            {/* Batch Edit Modal - Redesigned */}
+            <Modal isOpen={!!editingGroup} onClose={() => setEditingGroup(null)} title="Edit Meal">
+                {editingGroup && (
+                    <div className="flex flex-col h-full max-h-[80vh]">
+                        {/* Meal Type Segmented Control */}
+                        <div className="flex p-1 bg-gray-100 dark:bg-white/5 rounded-xl mb-6">
+                            {['Breakfast', 'Lunch', 'Dinner', 'Snack'].map(type => (
+                                <button
+                                    key={type}
+                                    onClick={() => setEditingGroup({ ...editingGroup, type })}
+                                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${editingGroup.type === type
+                                        ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-900 dark:text-white'
+                                        : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                                        }`}
+                                >
+                                    {type}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Scrollable Food List */}
+                        <div className="flex-1 overflow-y-auto space-y-4 p-4 bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-100 dark:border-white/5 min-h-0 relative">
+                            {editingGroup.items.map((item, idx) => {
+                                const isDeleted = editDeleteIds.has(item.id);
+                                return (
+                                    <div key={item.id} className={`bg-white dark:bg-[#161B22] p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm transition-all ${isDeleted ? 'opacity-50 grayscale' : ''}`}>
+
+                                        {/* Header: Name + Trash */}
+                                        <div className="flex justify-between items-start mb-4">
+                                            <div className="flex items-start gap-2">
+                                                <div className={`w-2 h-2 mt-1.5 rounded-full ${Math.max(item.protein, item.carbs, item.fats) === item.protein ? 'bg-emerald-500' :
+                                                    Math.max(item.protein, item.carbs, item.fats) === item.carbs ? 'bg-blue-500' : 'bg-orange-500'
+                                                    }`} />
+                                                <div>
+                                                    <input
+                                                        className="font-bold text-gray-900 dark:text-white text-base bg-transparent p-0 border-none focus:ring-0 focus:outline-none w-full"
+                                                        value={item.foodName}
+                                                        disabled={isDeleted}
+                                                        onChange={(e) => {
+                                                            const newItems = [...editingGroup.items];
+                                                            newItems[idx].foodName = e.target.value;
+                                                            setEditingGroup({ ...editingGroup, items: newItems });
+                                                        }}
+                                                    />
+                                                    <div className="text-xs text-gray-400 dark:text-gray-500 font-medium">
+                                                        {item.quantity} {item.unit}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                onClick={() => {
+                                                    const newSet = new Set(editDeleteIds);
+                                                    if (isDeleted) newSet.delete(item.id);
+                                                    else newSet.add(item.id);
+                                                    setEditDeleteIds(newSet);
+                                                }}
+                                                className="text-gray-300 hover:text-gray-500 transition-colors p-1"
+                                            >
+                                                {isDeleted ? <span className="text-xs font-bold text-emerald-500">UNDO</span> : <Trash2 size={16} />}
+                                            </button>
+                                        </div>
+
+                                        {/* Controls Row */}
+                                        <div className={`flex items-end justify-between ${isDeleted ? 'pointer-events-none' : ''}`}>
+                                            {/* Quantity Stepper/Input */}
+                                            <div className="flex items-center bg-gray-50 dark:bg-white/5 rounded-xl p-1">
+                                                <button
+                                                    className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-white dark:hover:bg-white/10 rounded-lg transition-all"
+                                                    onClick={() => {
+                                                        const newItems = [...editingGroup.items];
+                                                        newItems[idx].quantity = Math.max(0.1, (newItems[idx].quantity || 0) - 0.5);
+                                                        setEditingGroup({ ...editingGroup, items: newItems });
+                                                    }}
+                                                >
+                                                    -
+                                                </button>
+                                                <input
+                                                    className="w-12 text-center bg-transparent font-bold text-gray-900 dark:text-white text-sm focus:outline-none"
+                                                    value={item.quantity}
+                                                    type="number"
+                                                    onChange={(e) => {
+                                                        const newItems = [...editingGroup.items];
+                                                        newItems[idx].quantity = parseFloat(e.target.value) || 0;
+                                                        setEditingGroup({ ...editingGroup, items: newItems });
+                                                    }}
+                                                />
+                                                <button
+                                                    className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-white dark:hover:bg-white/10 rounded-lg transition-all"
+                                                    onClick={() => {
+                                                        const newItems = [...editingGroup.items];
+                                                        newItems[idx].quantity = (newItems[idx].quantity || 0) + 0.5;
+                                                        setEditingGroup({ ...editingGroup, items: newItems });
+                                                    }}
+                                                >
+                                                    +
+                                                </button>
+                                            </div>
+
+                                            {/* Macros */}
+                                            <div className="text-right">
+                                                <div className="flex items-center justify-end gap-1 mb-1 text-gray-900 dark:text-white font-bold">
+                                                    <Flame size={12} className="text-gray-400" />
+                                                    {Math.round(item.calories)}<span className="text-xs font-normal text-gray-400 ml-0.5">kcal</span>
+                                                </div>
+                                                <div className="flex gap-2 text-[10px] font-bold uppercase tracking-wider">
+                                                    <span className="text-blue-500 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-500" />{Math.round(item.protein)}g P</span>
+                                                    <span className="text-emerald-500 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{Math.round(item.carbs)}g C</span>
+                                                    <span className="text-purple-500 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-purple-500" />{Math.round(item.fats)}g F</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Total Intake Summary */}
+                        <div className="bg-white dark:bg-[#161B22] mx-[-24px] mb-[-24px] p-6 rounded-b-2xl border-t border-gray-100 dark:border-white/10 mt-4">
+                            <div className="mb-6">
+                                <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Total Intake</div>
+                                <div className="flex justify-between items-end">
+                                    <div className="text-3xl font-bold text-gray-900 dark:text-white">
+                                        {Math.round(editingGroup.items.filter(i => !editDeleteIds.has(i.id)).reduce((a, b) => a + b.calories, 0))} <span className="text-lg font-medium text-gray-400">kcal</span>
+                                    </div>
+                                    <div className="flex gap-4 text-sm font-bold">
+                                        <div className="text-blue-500 flex flex-col items-end">
+                                            <span>{Math.round(editingGroup.items.filter(i => !editDeleteIds.has(i.id)).reduce((a, b) => a + b.protein, 0))}g</span>
+                                            <span className="text-[10px] text-gray-400 font-bold">PRO</span>
+                                        </div>
+                                        <div className="text-emerald-500 flex flex-col items-end">
+                                            <span>{Math.round(editingGroup.items.filter(i => !editDeleteIds.has(i.id)).reduce((a, b) => a + b.carbs, 0))}g</span>
+                                            <span className="text-[10px] text-gray-400 font-bold">CARB</span>
+                                        </div>
+                                        <div className="text-purple-500 flex flex-col items-end">
+                                            <span>{Math.round(editingGroup.items.filter(i => !editDeleteIds.has(i.id)).reduce((a, b) => a + b.fats, 0))}g</span>
+                                            <span className="text-[10px] text-gray-400 font-bold">FAT</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setEditingGroup(null)}
+                                    className="flex-1 h-12 rounded-lg border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={handleBatchSave}
+                                    className="flex-1 h-12 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                                >
+                                    Save Changes
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
             <FoodLoggerModal
                 isOpen={isFoodModalOpen}
-                onClose={() => { setIsFoodModalOpen(false); loadData(); }}
-                editingLog={editingLog}
-                targetDate={selectedDate} // We need to add this prop to Modal
+                onClose={() => { setIsFoodModalOpen(false); setEditingLog(undefined); }}
+                selectedDate={selectedDate}
+                onSave={loadData}
+                initialData={editingLog}
             />
 
             <ConfirmationModal
                 isOpen={!!deleteId}
                 onClose={() => setDeleteId(null)}
                 onConfirm={handleDeleteLog}
-                title="Delete Meal?"
-                message="Are you sure you want to remove this meal entry?"
+                title="Delete Food Log"
+                message="Are you sure you want to delete this food log?"
                 confirmText="Delete"
                 variant="danger"
             />
@@ -462,7 +960,7 @@ interface FoodLoggerProps {
 
 const FoodLoggerModal: React.FC<FoodLoggerProps> = ({ isOpen, onClose, editingLog, targetDate }) => {
     const [view, setView] = useState<'search' | 'create' | 'edit'>('search');
-    const [mealType, setMealType] = useState('Breakfast');
+    const [mealType, setMealType] = useState('Snack');
     const [searchTerm, setSearchTerm] = useState('');
     const [customFoods, setCustomFoods] = useState<FoodItem[]>([]);
 
@@ -473,10 +971,20 @@ const FoodLoggerModal: React.FC<FoodLoggerProps> = ({ isOpen, onClose, editingLo
         if (isOpen) {
             DatabaseService.getCustomFoods().then(setCustomFoods);
 
+            // Auto-suggest meal type on open if not editing
+            if (!editingLog) {
+                const hour = new Date().getHours();
+                if (hour >= 5 && hour < 11) setMealType('Breakfast');
+                else if (hour >= 11 && hour < 16) setMealType('Lunch');
+                else if (hour >= 16 && hour < 19) setMealType('Snack');
+                else if (hour >= 19 && hour < 23) setMealType('Dinner');
+            }
+
             if (editingLog) {
                 // Pre-fill for editing existing log
                 setView('edit');
-                setMealType(editingLog.mealType);
+                // Ensure meal type is set from the log
+                setMealType(editingLog.mealType || 'Snack'); // Assuming mealType exists on FoodLog
                 setEditForm({
                     name: editingLog.foodName,
                     calories: (editingLog.calories / editingLog.quantity).toString(), // Per unit estimate

@@ -25,7 +25,7 @@ export const GeminiService = {
     }
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash-latest',
+        model: 'gemini-2.5-flash-lite',
         contents: `Create a workout routine list based on this request: "${prompt}". 
         Return a list of routines. For each routine, provide a name and a list of exercises.
         Each exercise must have a name, muscleGroup, recommended sets, recommended reps, and a short note on form or focus.
@@ -64,6 +64,9 @@ export const GeminiService = {
       return data;
     } catch (error) {
       console.error("Gemini API Error:", error);
+      if (error.status === 429 || error.message?.includes("429")) {
+        throw new Error("Daily quota exceeded for AI. Please try again later.");
+      }
       throw new Error("Failed to generate routine. Please try again.");
     }
   },
@@ -73,7 +76,7 @@ export const GeminiService = {
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash-latest',
+        model: 'gemini-2.5-flash-lite',
         contents: `You are an expert fitness coach called IronCoach. 
         You have access to the user's data.
         
@@ -92,11 +95,14 @@ export const GeminiService = {
       return response.text || "I couldn't analyze that right now.";
     } catch (error) {
       console.error("Gemini Chat Error", error);
+      if (error.status === 429 || error.message?.includes("429")) {
+        return "I'm tired (Quota exceeded). Come back later!";
+      }
       return "I'm having trouble connecting to the server.";
     }
   },
 
-  analyzeFoodImage: async (imageBase64: string): Promise<{ food_name: string, calories: number, protein: number, carbs: number, fats: number, notes: string } | null> => {
+  analyzeFoodImage: async (imageBase64: string): Promise<{ items: any[], notes: string } | null> => {
     if (!apiKey) {
       alert("API Key is missing.");
       return null;
@@ -107,21 +113,38 @@ export const GeminiService = {
       const cleanBase64 = imageBase64.split(',')[1] || imageBase64;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash-latest', // Flash is cheaper and great for this
+        model: 'gemini-2.5-flash-lite', // Flash is cheaper and great for this
         contents: [
           {
             role: 'user',
             parts: [
               {
-                text: `Analyze this food image. Identify the meal and estimate the nutrition for the ENTIRE portion shown.
-                        Return ONLY valid JSON with this exact schema:
+                text: `Analyze this food image. Identify the meal and provide a detailed breakdown of EACH food item visible.
+                        
+                        CRITICAL INSTRUCTIONS:
+                        1. Separate the meal into individual components (e.g. Rice, Dal, Curd, Roti, Salad).
+                        2. **COUNT THE ITEMS**: If you see multiple pieces (e.g. 4 Rotis, 2 Eggs), count them and calculate nutrition for the TOTAL quantity visible.
+                        3. Estimate portion sizes realistically.
+                        4. BE CONSERVATIVE with PROTEIN. Do not overestimate. 
+                           - Rice (100g cooked) ~ 2.5g protein
+                           - Roti/Chapati (1 medium) ~ 3g protein (So 4 Rotis = ~12g protein)
+                           - Dal (1 bowl) ~ 5-7g protein
+                           - Curd/Yogurt (100g) ~ 3-4g protein
+                           - Chicken Breast (100g) ~ 25-30g protein
+                        5. Return valid JSON with this structure:
                         {
-                            "food_name": "Short descriptive name",
-                            "calories": number,
-                            "protein": number (grams),
-                            "carbs": number (grams),
-                            "fats": number (grams),
-                            "notes": "Short explanation of the estimate (e.g. 'Looks like 200g of rice')"
+                            "items": [
+                                {
+                                    "food_name": "Name of item (e.g. 4 Rotis)",
+                                    "calories": number,
+                                    "protein": number,
+                                    "carbs": number,
+                                    "fats": number,
+                                    "quantity": 1,
+                                    "unit": "serving estimate (e.g. 4 pieces)"
+                                }
+                            ],
+                            "notes": "Brief summary of the meal and what you counted."
                         }
                         Do not wrap in markdown code blocks.` },
               { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }
@@ -133,11 +156,30 @@ export const GeminiService = {
         }
       });
 
-      const text = response.text;
+      const text = response.text || "";
       if (!text) return null;
-      return JSON.parse(text);
+
+      // Robust JSON extraction
+      let jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const firstBrace = jsonString.indexOf('{');
+      const lastBrace = jsonString.lastIndexOf('}');
+
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+      }
+
+      try {
+        return JSON.parse(jsonString);
+      } catch (e) {
+        console.error("Gemini JSON Parse Error", e, text);
+        return null;
+      }
     } catch (error) {
       console.error("Gemini Vision Error:", error);
+      if (error.status === 429 || error.message?.includes("429")) {
+        alert("Daily quota exceeded. try again later.");
+        return null;
+      }
       alert("Failed to analyze image. Try again.");
       return null;
     }
