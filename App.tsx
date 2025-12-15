@@ -327,7 +327,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-bg transition-colors duration-200 font-sans">
-      <div className={`mx-auto max-w-3xl bg-white dark:bg-dark-bg min-h-screen shadow-2xl shadow-black/5 relative ${activeSession && currentRoute !== 'active-workout' ? 'pb-40' : 'pb-24'}`}>
+      <div className={`mx-auto max-w-3xl bg-white dark:bg-dark-bg min-h-screen shadow-2xl shadow-black/5 relative pt-safe ${currentRoute === 'reports' ? '' : (activeSession && currentRoute !== 'active-workout' ? 'pb-40' : 'pb-24')}`}>
         {currentRoute === 'settings' && (
           <div className="absolute top-4 right-4 z-50">
             <Button variant="ghost" size="sm" onClick={signOut} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">

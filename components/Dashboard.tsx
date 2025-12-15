@@ -1236,41 +1236,46 @@ export const ReportsScreen: React.FC = () => {
     }, [messages, view]);
 
     return (
-        <div className="flex flex-col h-full max-h-[calc(100vh-80px)] p-4 pb-24 max-w-2xl mx-auto">
+        <div className="flex flex-col h-[calc(100dvh-env(safe-area-inset-top))] max-w-2xl mx-auto relative">
             {/* Header Tabs */}
-            <div className="flex p-1 bg-gray-200 dark:bg-gray-800 rounded-xl mb-4 shrink-0">
-                <button
-                    onClick={() => setView('analytics')}
-                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${view === 'analytics'
-                        ? 'bg-white dark:bg-dark-card shadow-sm text-gray-900 dark:text-white'
-                        : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                        }`}
-                >
-                    Analytics
-                </button>
-                <button
-                    onClick={() => setView('chat')}
-                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${view === 'chat'
-                        ? 'bg-white dark:bg-dark-card shadow-sm text-gray-900 dark:text-white'
-                        : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                        }`}
-                >
-                    AI Coach
-                </button>
+            <div className="flex p-2 bg-gray-50/80 dark:bg-dark-bg/80 backdrop-blur-xl z-20 border-b border-gray-100 dark:border-white/5 sticky top-0">
+                <div className="flex p-1 bg-gray-200 dark:bg-gray-800 rounded-xl w-full">
+                    <button
+                        onClick={() => setView('analytics')}
+                        className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${view === 'analytics'
+                            ? 'bg-white dark:bg-dark-card shadow-sm text-gray-900 dark:text-white'
+                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                            }`}
+                    >
+                        Analytics
+                    </button>
+                    <button
+                        onClick={() => setView('chat')}
+                        className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${view === 'chat'
+                            ? 'bg-white dark:bg-dark-card shadow-sm text-gray-900 dark:text-white'
+                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                            }`}
+                    >
+                        AI Coach
+                    </button>
+                </div>
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-hidden relative">
                 {view === 'analytics' ? (
-                    <AnalyticsView />
+                    <div className="h-full overflow-y-auto p-4 pb-32">
+                        <AnalyticsView />
+                    </div>
                 ) : (
-                    <div className="h-full flex flex-col">
-                        <div className="flex-1 space-y-4 mb-4 pr-2">
+                    <div className="flex flex-col h-full bg-slate-50 dark:bg-dark-bg relative">
+                        {/* Messages Container */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-[130px]"> {/* Padding for input + nav */}
                             {messages.map((msg, i) => (
-                                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[85%] p-4 rounded-2xl text-sm whitespace-pre-wrap ${msg.role === 'user'
+                                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300`}>
+                                    <div className={`max-w-[85%] p-4 rounded-2xl text-sm whitespace-pre-wrap leading-relaxed shadow-sm ${msg.role === 'user'
                                         ? 'bg-primary-600 text-white rounded-br-none'
-                                        : 'bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-800 text-gray-800 dark:text-gray-200 rounded-bl-none shadow-sm'
+                                        : 'bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-800 text-gray-800 dark:text-gray-200 rounded-bl-none'
                                         }`}>
                                         {msg.text}
                                     </div>
@@ -1278,11 +1283,11 @@ export const ReportsScreen: React.FC = () => {
                             ))}
                             {isLoading && (
                                 <div className="flex justify-start">
-                                    <div className="bg-gray-100 dark:bg-dark-card p-4 rounded-2xl rounded-bl-none">
-                                        <div className="flex gap-1">
-                                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-75"></div>
-                                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-150"></div>
+                                    <div className="bg-white dark:bg-dark-card p-4 rounded-2xl rounded-bl-none shadow-sm border border-gray-100 dark:border-gray-800">
+                                        <div className="flex gap-1.5">
+                                            <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
+                                            <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-75"></div>
+                                            <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-150"></div>
                                         </div>
                                     </div>
                                 </div>
@@ -1290,21 +1295,32 @@ export const ReportsScreen: React.FC = () => {
                             <div ref={scrollRef} />
                         </div>
 
-                        <div className="flex gap-2 shrink-0">
-                            <input
-                                className="flex-1 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 rounded-full px-4 py-3 text-sm focus:ring-2 focus:ring-primary-500 outline-none dark:text-white"
-                                placeholder="Ask about progress, strength, etc..."
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                            />
-                            <button
-                                onClick={handleSend}
-                                disabled={isLoading || !input.trim()}
-                                className="bg-primary-600 text-white w-12 h-12 rounded-full flex items-center justify-center hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-lg shadow-primary-500/30"
-                            >
-                                <Send size={20} />
-                            </button>
+                        {/* Input Area - Fixed relative to bottom nav */}
+                        <div className="absolute w-full left-0 z-20 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-dark-card p-2 backdrop-blur-xl pb-2"
+                            style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
+                        >
+                            <div className="flex gap-2 items-end max-w-2xl mx-auto">
+                                <textarea
+                                    className="flex-1 bg-gray-100 dark:bg-gray-800/50 border-0 rounded-2xl px-4 py-3 text-sm focus:ring-0 outline-none dark:text-white resize-none max-h-32 min-h-[48px]"
+                                    placeholder="Ask IronCoach..."
+                                    rows={1}
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleSend();
+                                        }
+                                    }}
+                                />
+                                <button
+                                    onClick={handleSend}
+                                    disabled={isLoading || !input.trim()}
+                                    className="bg-primary-600 hover:bg-primary-700 text-white w-12 h-12 rounded-full flex items-center justify-center disabled:opacity-50 disabled:bg-gray-300 transition-all shadow-lg active:scale-90 shrink-0 mb-px"
+                                >
+                                    <Send size={20} fill="currentColor" />
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
