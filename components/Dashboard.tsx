@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Routine, WorkoutSession, UserProfile, BodyWeightLog, FoodLog, WaterLog } from '../types';
 import { DatabaseService } from '../services/databaseService';
 import { GeminiService } from '../services/geminiService';
-import { Button, Card, Modal, Input, ConfirmationModal } from './Shared';
+import { Button, Card, Modal, Input, ConfirmationModal, SwipeButton } from './Shared';
 import { NutritionDashboard } from './Nutrition';
-import { Calendar as CalendarIcon, Activity, Plus, Play, Trash, BarChart as BarChartIcon, Sparkles, Send, Edit2, UserCircle, Scale, ChevronLeft, ChevronRight, Search, BookOpen, Copy, ArrowLeft, X, Ruler, TrendingUp, Info, Flame, Droplets, ChevronDown, ChevronUp, Dumbbell, Timer, Home, Settings as SettingsIcon, BarChart3, LogOut, Trash2, Camera, Loader2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Activity, Plus, Play, Trash, BarChart as BarChartIcon, Sparkles, Send, Edit2, UserCircle, Scale, ChevronLeft, ChevronRight, Search, BookOpen, Copy, ArrowLeft, X, Ruler, TrendingUp, Info, Flame, Droplets, ChevronDown, ChevronUp, Dumbbell, Timer, Home, Settings as SettingsIcon, BarChart3, LogOut, Trash2, Camera, Loader2, ArrowUp, ArrowDown } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 // --- Constants ---
-import { COMMON_EXERCISES, ExerciseDetail } from './exercisesData';
+import { COMMON_EXERCISES, ExerciseDetail, getMuscleGroupForExercise, getExerciseTarget } from './exercisesData';
 
 const PREDEFINED_TEMPLATES = [
     {
@@ -103,7 +103,7 @@ const InsightSection: React.FC<{ lastStats?: { date: number; volume: number; dur
     );
 };
 
-const HeroCard: React.FC<{ routine: Routine; onStart: () => void }> = ({ routine, onStart }) => {
+const HeroCard: React.FC<{ routine: Routine; onStart: () => void; onSkip?: () => void }> = ({ routine, onStart, onSkip }) => {
     return (
         <div className="relative overflow-hidden rounded-[2.5rem] p-1 transition-all duration-300 group ring-1 ring-black/5 dark:ring-white/10">
             {/* Backgrounds */}
@@ -120,11 +120,22 @@ const HeroCard: React.FC<{ routine: Routine; onStart: () => void }> = ({ routine
                         <span className="w-2 h-2 rounded-full bg-blue-500 dark:bg-primary-500 animate-pulse" />
                         <span className="text-[11px] font-black text-blue-900 dark:text-white uppercase tracking-widest">Today's Workout</span>
                     </div>
-                    {routine.lastPerformed && (
-                        <span className="text-[11px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-widest mt-1">
-                            Last: {new Date(routine.lastPerformed).toLocaleDateString(undefined, { weekday: 'short' })}
-                        </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                        {/* Skip Button */}
+                        {onSkip && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onSkip(); }}
+                                className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider hover:text-slate-600 dark:hover:text-gray-300 transition-colors flex items-center gap-1 px-2 py-1 rounded-full hover:bg-white/50 dark:hover:bg-white/10"
+                            >
+                                <ChevronRight size={12} /> Skip Day
+                            </button>
+                        )}
+                        {routine.lastPerformed && (
+                            <span className="text-[11px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-widest mt-1">
+                                Last: {new Date(routine.lastPerformed).toLocaleDateString(undefined, { weekday: 'short' })}
+                            </span>
+                        )}
+                    </div>
                 </div>
 
                 <div className="mb-6">
@@ -141,15 +152,11 @@ const HeroCard: React.FC<{ routine: Routine; onStart: () => void }> = ({ routine
                     <InsightSection lastStats={routine.lastPerformed ? { date: routine.lastPerformed, volume: 12500, duration: 3200 } : undefined} />
                 </div>
 
-                <button
-                    onClick={onStart}
-                    className="w-full relative overflow-hidden rounded-2xl bg-slate-900 dark:bg-primary-600 text-white font-black text-lg py-4 shadow-xl shadow-slate-900/20 dark:shadow-primary-600/40 group-hover:scale-[1.02] active:scale-[0.98] transition-all transform will-change-transform"
-                >
-                    <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-                    <div className="relative flex items-center justify-center gap-3">
-                        <Play fill="currentColor" size={22} /> START SESSION
-                    </div>
-                </button>
+                <SwipeButton
+                    onSwipe={onStart}
+                    text="SWIPE TO START"
+                    className="w-full"
+                />
             </div>
         </div>
     );
@@ -580,10 +587,45 @@ export const HomeScreen: React.FC<{
         }
     };
 
-    // Derived Data
-    const sortedRoutines = [...routines].sort((a, b) => (a.lastPerformed || 0) - (b.lastPerformed || 0));
+    // Skip Day functionality
+    const [skippedRoutineIds, setSkippedRoutineIds] = useState<string[]>([]);
+
+    // Load skipped routines from localStorage (reset daily)
+    useEffect(() => {
+        const today = new Date().toISOString().split('T')[0];
+        const stored = localStorage.getItem('ironlog_skipped_routines');
+        if (stored) {
+            try {
+                const { date, ids } = JSON.parse(stored);
+                if (date === today) {
+                    setSkippedRoutineIds(ids || []);
+                } else {
+                    // New day, clear skips
+                    localStorage.removeItem('ironlog_skipped_routines');
+                    setSkippedRoutineIds([]);
+                }
+            } catch {
+                setSkippedRoutineIds([]);
+            }
+        }
+    }, []);
+
+    const handleSkipRoutine = (routineId: string) => {
+        const today = new Date().toISOString().split('T')[0];
+        const newSkipped = [...skippedRoutineIds, routineId];
+        setSkippedRoutineIds(newSkipped);
+        localStorage.setItem('ironlog_skipped_routines', JSON.stringify({ date: today, ids: newSkipped }));
+    };
+
+    // Derived Data - filter out skipped routines
+    const sortedRoutines = [...routines]
+        .filter(r => !skippedRoutineIds.includes(r.id))
+        .sort((a, b) => (a.lastPerformed || 0) - (b.lastPerformed || 0));
     const nextRoutine = sortedRoutines[0];
     const otherRoutines = sortedRoutines.slice(1);
+
+    // Also show skipped routines at the end for reference
+    const skippedRoutines = routines.filter(r => skippedRoutineIds.includes(r.id));
 
     const bmi = (userProfile?.height && latestWeight)
         ? (latestWeight / Math.pow(userProfile.height / 100, 2)).toFixed(1)
@@ -623,7 +665,25 @@ export const HomeScreen: React.FC<{
 
                 {/* Hero Card */}
                 {nextRoutine ? (
-                    <HeroCard routine={nextRoutine} onStart={() => onStartWorkout(nextRoutine)} />
+                    <HeroCard
+                        routine={nextRoutine}
+                        onStart={() => onStartWorkout(nextRoutine)}
+                        onSkip={() => handleSkipRoutine(nextRoutine.id)}
+                    />
+                ) : routines.length > 0 && skippedRoutineIds.length > 0 ? (
+                    <div className="text-center py-8 bg-white dark:bg-dark-card rounded-3xl border border-gray-100 dark:border-gray-800 mb-6">
+                        <p className="text-gray-500 dark:text-gray-400 font-medium mb-2">All routines skipped for today</p>
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                                setSkippedRoutineIds([]);
+                                localStorage.removeItem('ironlog_skipped_routines');
+                            }}
+                        >
+                            Reset Skips
+                        </Button>
+                    </div>
                 ) : (
                     <div className="text-center py-12 bg-white dark:bg-dark-card rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800 mb-6">
                         <p className="text-gray-400 font-medium mb-4">No routines found</p>
@@ -1178,7 +1238,19 @@ export const ReportsScreen: React.FC = () => {
     const [view, setView] = useState<'analytics' | 'chat'>('analytics');
 
     // Chat State
-    const [messages, setMessages] = useState<ChatMessage[]>([{ role: 'model', text: "Hi! I'm IronCoach. I have access to your full workout history. Ask me anything!" }]);
+    // Chat State
+    const [messages, setMessages] = useState<ChatMessage[]>(() => {
+        const saved = localStorage.getItem('ironlog_chat_history');
+        try {
+            return saved ? JSON.parse(saved) : [{ role: 'model', text: "Hi! I'm IronCoach. I have access to your full workout history. Ask me anything!" }];
+        } catch (e) {
+            return [{ role: 'model', text: "Hi! I'm IronCoach. I have access to your full workout history. Ask me anything!" }];
+        }
+    });
+
+    useEffect(() => {
+        localStorage.setItem('ironlog_chat_history', JSON.stringify(messages));
+    }, [messages]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -1199,9 +1271,28 @@ export const ReportsScreen: React.FC = () => {
 
             // Summarize history to avoid token limits but keep detail
             // Group by Routine Name and Date
-            const summarizedHistory = sessions.map(s => {
-                const bestSets = s.exercises.map(e => {
-                    const maxWeight = Math.max(...e.sets.map(x => x.weight));
+            // Deduplicate sessions to avoid double counting (same date + routine name)
+            // Use a Map to keep the one with higher volume or just the first one if identical
+            const uniqueSessionsMap = new Map();
+            sessions.forEach(s => {
+                const key = `${s.date}-${s.routineName}`;
+                // Keep the existing one if it has more volume, otherwise replace
+                if (!uniqueSessionsMap.has(key)) {
+                    uniqueSessionsMap.set(key, s);
+                } else {
+                    const existing = uniqueSessionsMap.get(key);
+                    if (s.totalVolume > existing.totalVolume) {
+                        uniqueSessionsMap.set(key, s);
+                    }
+                }
+            });
+            const uniqueSessions = Array.from(uniqueSessionsMap.values());
+
+            // Summarize history to avoid token limits but keep detail
+            // Group by Routine Name and Date
+            const summarizedHistory = uniqueSessions.map(s => {
+                const bestSets = s.exercises.map((e: any) => {
+                    const maxWeight = Math.max(...e.sets.map((x: any) => x.weight));
                     return `${e.name}: ${maxWeight}kg`;
                 }).join(', ');
                 return `${s.date} (${s.routineName}): Vol ${s.totalVolume}kg. Best: ${bestSets}`;
@@ -1259,6 +1350,19 @@ export const ReportsScreen: React.FC = () => {
                         AI Coach
                     </button>
                 </div>
+                {view === 'chat' && (
+                    <button
+                        onClick={() => {
+                            if (confirm("Clear chat history?")) {
+                                setMessages([{ role: 'model', text: "Chat cleared. Ready for your questions!" }]);
+                            }
+                        }}
+                        className="ml-2 p-2 text-gray-400 hover:text-red-500 rounded-lg transition-colors"
+                        title="Clear Chat"
+                    >
+                        <Trash2 size={18} />
+                    </button>
+                )}
             </div>
 
             {/* Content Area */}
@@ -1443,6 +1547,22 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
         setIsTemplateModalOpen(false);
     }
 
+    const handleMoveRoutine = async (index: number, direction: 'up' | 'down') => {
+        if (direction === 'up' && index === 0) return;
+        if (direction === 'down' && index === routines.length - 1) return;
+
+        const newRoutines = [...routines];
+        const swapIndex = direction === 'up' ? index - 1 : index + 1;
+
+        [newRoutines[index], newRoutines[swapIndex]] = [newRoutines[swapIndex], newRoutines[index]];
+
+        // Optimistic update
+        onUpdateRoutines(newRoutines);
+
+        // Persist
+        await DatabaseService.reorderRoutines(newRoutines);
+    };
+
     const confirmDelete = async () => {
         if (!deleteId) return;
         const originalRoutines = [...routines];
@@ -1516,15 +1636,33 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                                 <div className="flex flex-wrap gap-1 mt-2">
                                     {routine.exercises.slice(0, 4).map((e, idx) => (
                                         <span key={idx} className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2 py-1 rounded">
-                                            {e.name}
+                                            {e.name} <span className="opacity-50">• {getExerciseTarget(e.name) || e.muscleGroup || getMuscleGroupForExercise(e.name) || 'General'}</span>
                                         </span>
                                     ))}
                                     {routine.exercises.length > 4 && <span className="text-xs text-gray-400 py-1">+{routine.exercises.length - 4} more</span>}
                                 </div>
                             </div>
-                            <button onClick={(e) => handleDeleteClick(routine.id, e)} className="p-2 text-gray-400 hover:text-red-500 z-10">
-                                <Trash size={18} />
-                            </button>
+                            <div className="flex flex-col gap-1 ml-2">
+                                <div className="flex gap-1">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleMoveRoutine(routines.indexOf(routine), 'up'); }}
+                                        className="p-1 text-gray-300 hover:text-primary-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                                        title="Move Up"
+                                    >
+                                        <ArrowUp size={16} />
+                                    </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleMoveRoutine(routines.indexOf(routine), 'down'); }}
+                                        className="p-1 text-gray-300 hover:text-primary-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                                        title="Move Down"
+                                    >
+                                        <ArrowDown size={16} />
+                                    </button>
+                                </div>
+                                <button onClick={(e) => handleDeleteClick(routine.id, e)} className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded self-end">
+                                    <Trash size={16} />
+                                </button>
+                            </div>
                         </div>
                     </Card>
                 ))}
@@ -1602,13 +1740,7 @@ export const RoutinesScreen: React.FC<{ routines: Routine[]; onUpdateRoutines: (
                                                     onChange={(e) => updateExerciseName(i, e.target.value)}
                                                 />
                                                 <div className="text-xs text-gray-500 flex items-center gap-2 mt-1">
-                                                    <span>{ex.muscle}</span>
-                                                    {ex.target && (
-                                                        <>
-                                                            <span className="w-1 h-1 rounded-full bg-gray-300"></span>
-                                                            <span className="text-primary-600 dark:text-primary-400 font-medium">{ex.target}</span>
-                                                        </>
-                                                    )}
+                                                    <span>{getExerciseTarget(ex.name) || ex.muscle || getMuscleGroupForExercise(ex.name) || 'General'}</span>
                                                 </div>
                                             </div>
                                         </div>

@@ -4,7 +4,8 @@ create table if not exists routines (
   created_at timestamptz default now(),
   name text not null,
   day_label text, -- e.g., "Monday" or "Push Day"
-  exercises_json jsonb not null -- Stores the list of exercises
+  exercises_json jsonb not null, -- Stores the list of exercises
+  sort_order int default 1000 -- Display order of the routine
 );
 
 -- 2. Sessions Table (Stores completed workouts)

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, Calendar, Settings as SettingsIcon, Dumbbell, BarChart3, ChevronUp, Scale, LogOut } from 'lucide-react';
+import { Home, Calendar, Settings as SettingsIcon, Dumbbell, BarChart3, ChevronUp, Scale, LogOut, Users, ClipboardList, User } from 'lucide-react';
 import { HomeScreen, CalendarScreen, ReportsScreen, RoutinesScreen, SettingsScreen } from './components/Dashboard';
 import { NutritionScreen } from './components/Nutrition';
 import { ActiveSession } from './components/ActiveSession';
@@ -8,6 +8,9 @@ import { Routine, WorkoutSession } from './types';
 import { Button, Modal, Input, Card, ConfirmationModal } from './components/Shared';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Auth } from './components/Auth';
+import { TrainerDashboard } from './components/TrainerDashboard';
+import { PlanBuilder } from './components/PlanBuilder';
+import { TraineeView } from './components/TraineeView';
 
 // Simple Router Component
 const Router = ({
@@ -21,7 +24,7 @@ const Router = ({
 };
 
 function AppContent() {
-  const { user, signOut, loading } = useAuth();
+  const { user, signOut, loading, userRole, hasTrainer } = useAuth();
   const [currentRoute, setCurrentRoute] = useState<string>('home');
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
@@ -279,7 +282,17 @@ function AppContent() {
 
     const navItems = [
       { id: 'home', icon: Home, label: 'Home' },
-      { id: 'workouts', icon: Dumbbell, label: 'Workouts' },
+      // Role-based nav items
+      ...(userRole === 'trainer' ? [
+        { id: 'trainees', icon: Users, label: 'Trainees' },
+        { id: 'plan-builder', icon: ClipboardList, label: 'Plans' },
+      ] : [
+        { id: 'workouts', icon: Dumbbell, label: 'Workouts' },
+      ]),
+      // Show trainer badge for trainees
+      ...(hasTrainer && userRole === 'user' ? [
+        { id: 'my-trainer', icon: User, label: 'My Trainer' },
+      ] : []),
       { id: 'calendar', icon: Calendar, label: 'History' },
       { id: 'reports', icon: BarChart3, label: 'AI Coach' },
       { id: 'settings', icon: SettingsIcon, label: 'Settings' },
@@ -363,6 +376,11 @@ function AppContent() {
                 case 'reports': return <ReportsScreen />;
                 case 'nutrition': return <NutritionScreen profile={userProfile} />;
                 case 'settings': return <SettingsScreen />;
+                // Trainer Routes
+                case 'trainees': return <TrainerDashboard />;
+                case 'plan-builder': return <PlanBuilder onBack={() => window.location.hash = 'trainees'} />;
+                // Trainee Routes
+                case 'my-trainer': return <TraineeView />;
                 default: return <HomeScreen routines={routines} onStartWorkout={handleStartWorkout} onResume={handleResumeWorkout} onViewHistory={() => window.location.hash = 'calendar'} activeSession={activeSession} userProfile={userProfile} stats={stats} latestWeight={latestWeight} onRefresh={fetchDashboardData} />;
               }
             }}

@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { WorkoutSession, Set, Routine, TrackingType } from '../types';
 import { DatabaseService } from '../services/databaseService';
 import { Button, Input, Card, ConfirmationModal, Modal } from './Shared';
-import { Timer, Check, Plus, Trash2, Video, History, Scale, TrendingUp, ChevronLeft, X, Play, Pause, Settings } from 'lucide-react';
-import { COMMON_EXERCISES } from './exercisesData';
+import { Timer, Check, Plus, Trash2, Video, History, Scale, TrendingUp, ChevronLeft, X, Play, Pause, Settings, ChevronRight } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Line } from 'recharts';
+import { COMMON_EXERCISES, getMuscleGroupForExercise, getExerciseTarget } from './exercisesData';
 
 interface ActiveSessionProps {
     routine: Routine;
@@ -55,19 +56,41 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
     const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
     const [customExerciseName, setCustomExerciseName] = useState('');
     const [customTrackingType, setCustomTrackingType] = useState<TrackingType>('reps_weight');
+    const [isAddToRoutineModalOpen, setIsAddToRoutineModalOpen] = useState(false);
+    const [pendingExercise, setPendingExercise] = useState<{ name: string, type: TrackingType, muscle?: string } | null>(null);
 
-    const handleAddExercise = (exerciseName: string, defaultType: TrackingType = 'reps_weight') => {
+    const handleAddExercise = (exerciseName: string, defaultType: TrackingType = 'reps_weight', muscle?: string) => {
+        setPendingExercise({ name: exerciseName, type: defaultType, muscle });
+        setIsAddToRoutineModalOpen(true);
+    };
+
+    const confirmAddExercise = async (addToRoutine: boolean) => {
+        if (!pendingExercise) return;
+
         const newExercise = {
             exerciseId: crypto.randomUUID(), // New ID
-            name: exerciseName,
+            name: pendingExercise.name,
             sets: [], // Start empty
             notes: '',
-            trackingType: defaultType
+            trackingType: pendingExercise.type
         };
         const updatedExercises = [...session.exercises, newExercise];
         setSession({ ...session, exercises: updatedExercises });
         setActiveExerciseIndex(updatedExercises.length - 1); // Switch to new
+
+        if (addToRoutine) {
+            await DatabaseService.addExerciseToRoutine(routine.id, {
+                id: crypto.randomUUID(),
+                name: pendingExercise.name,
+                muscleGroup: pendingExercise.muscle || getMuscleGroupForExercise(pendingExercise.name) || 'General',
+                defaultSets: 3,
+                defaultReps: 10
+            });
+        }
+
+        setIsAddToRoutineModalOpen(false);
         setIsAddExerciseModalOpen(false);
+        setPendingExercise(null);
         setSelectedMuscle(null);
         setCustomTrackingType('reps_weight'); // Reset
     };
@@ -75,20 +98,93 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
     const timerIntervalRef = useRef<number | null>(null);
     const sessionTimerRef = useRef<number | null>(null);
 
-    // Previous Session Data for comparison
-    const [prevSession, setPrevSession] = useState<WorkoutSession | null>(null);
+    const currentExercise = session.exercises[activeExerciseIndex];
+    const routineExerciseDef = routine.exercises.find(e => e.id === currentExercise.exerciseId);
+    const prevSessionExercise = existingSession?.exercises.find(e => e.exerciseId === currentExercise.exerciseId);
 
+    // Exercise History State
+    const [exerciseHistory, setExerciseHistory] = useState<{ date: string, maxWeight: number, totalVolume: number, oneRepMax: number }[]>([]);
+    const [lastLog, setLastLog] = useState<{ date: string, sets: any[] } | null>(null);
+    const [summaryStats, setSummaryStats] = useState<{ current: { maxWeight: number, volume: number }, previous: { maxWeight: number, volume: number }, diff: { maxWeight: number, volume: number } } | null>(null);
+    const [isExerciseSummaryModalOpen, setIsExerciseSummaryModalOpen] = useState(false);
+
+    // Fetch History when exercise changes
     useEffect(() => {
-        // Find last session of this SPECIFIC routine to show "Day 1" history vs "Day 1"
         const fetchHistory = async () => {
-            const allSessions = await DatabaseService.getSessions();
-            const last = allSessions
-                .filter(s => s.routineId === routine.id && s.id !== session.id)
-                .sort((a, b) => b.startTime - a.startTime)[0];
-            setPrevSession(last || null);
+            if (currentExercise.name) {
+                // 1. Get History Data for Graph
+                const history = await DatabaseService.getExerciseHistory(currentExercise.name);
+                setExerciseHistory(history.slice(-10));
+
+                // 2. Get Last Completed Session for specific "Last Time" view
+                const last = await DatabaseService.getLastLogForExercise(currentExercise.name);
+                setLastLog(last);
+            }
         };
         fetchHistory();
-    }, [routine.id, session.id]);
+    }, [currentExercise.name]);
+
+    const handleFinishExercise = () => {
+        const currentEx = session.exercises[activeExerciseIndex];
+        // Calculate stats
+        let currentMaxWeight = 0;
+        let currentVolume = 0;
+        let completedSets = 0;
+
+        currentEx.sets.forEach(s => {
+            if (s.completed) {
+                completedSets++;
+                const w = Number(s.weight) || 0;
+                const r = Number(s.reps) || 0;
+                if (w > currentMaxWeight) currentMaxWeight = w;
+                currentVolume += (w * r);
+            }
+        });
+
+        if (completedSets === 0) {
+            // Just move next if nothing done
+            if (activeExerciseIndex < session.exercises.length - 1) {
+                setActiveExerciseIndex(prev => prev + 1);
+            } else {
+                finishSession();
+            }
+            return;
+        }
+
+        // Compare with previous/history
+        // Use prevSessionExercise if available, or last entry in history
+        let prevMaxWeight = 0;
+        let prevVolume = 0;
+
+        if (exerciseHistory.length > 0) {
+            const last = exerciseHistory[exerciseHistory.length - 1];
+            prevMaxWeight = last.maxWeight;
+            prevVolume = last.totalVolume;
+        }
+
+        const stats = {
+            current: { maxWeight: currentMaxWeight, volume: currentVolume },
+            previous: { maxWeight: prevMaxWeight, volume: prevVolume },
+            diff: {
+                maxWeight: prevMaxWeight > 0 ? ((currentMaxWeight - prevMaxWeight) / prevMaxWeight) * 100 : 0,
+                volume: prevVolume > 0 ? ((currentVolume - prevVolume) / prevVolume) * 100 : 0
+            }
+        };
+
+        setSummaryStats(stats);
+        setIsExerciseSummaryModalOpen(true);
+    };
+
+    const confirmNextExercise = () => {
+        setIsExerciseSummaryModalOpen(false);
+        if (activeExerciseIndex < session.exercises.length - 1) {
+            setActiveExerciseIndex(prev => prev + 1);
+        } else {
+            finishSession();
+        }
+    };
+
+
 
     // Session Timer Logic (Wall-Clock Based)
     useEffect(() => {
@@ -277,9 +373,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
         }
     };
 
-    const currentExercise = session.exercises[activeExerciseIndex];
-    const routineExerciseDef = routine.exercises.find(e => e.id === currentExercise.exerciseId);
-    const prevSessionExercise = prevSession?.exercises.find(e => e.exerciseId === currentExercise.exerciseId);
+
 
     return (
         <div className="pb-24 max-w-2xl mx-auto">
@@ -359,7 +453,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                     <div className="flex justify-between items-start mb-4">
                         <div>
                             <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{currentExercise.name}</h3>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">{routineExerciseDef?.muscleGroup}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">{getExerciseTarget(currentExercise.name) || routineExerciseDef?.muscleGroup || getMuscleGroupForExercise(currentExercise.name) || 'General'}</p>
                         </div>
                         {routineExerciseDef?.videoUrl && (
                             <a href={routineExerciseDef.videoUrl} target="_blank" rel="noopener noreferrer" className="p-2 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-full">
@@ -382,35 +476,63 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                         </button>
                     </div>
 
+                    {/* Exercise Progression Graph */}
+                    {exerciseHistory.length > 1 && (
+                        <div className="mb-6 h-48 w-full bg-white dark:bg-dark-card rounded-xl shadow-sm border border-gray-100 dark:border-gray-800 p-2">
+                            <p className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider ml-2">Progress Trend (Volume & Max Weight)</p>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={exerciseHistory}>
+                                    <defs>
+                                        <linearGradient id="colorVol" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <XAxis dataKey="date" hide />
+                                    <YAxis yAxisId="left" hide domain={['auto', 'auto']} />
+                                    <YAxis yAxisId="right" orientation="right" hide domain={['auto', 'auto']} />
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', color: '#fff', fontSize: '12px' }}
+                                        itemStyle={{ color: '#fff' }}
+                                        labelStyle={{ color: '#9ca3af', marginBottom: '4px' }}
+                                    />
+                                    <Area yAxisId="left" type="monotone" dataKey="totalVolume" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorVol)" name="Volume (kg)" />
+                                    <Line yAxisId="right" type="monotone" dataKey="maxWeight" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} name="Max Weight (kg)" />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                    )}
+
                     {/* Comparison Logic */}
-                    {prevSessionExercise ? (
+                    {/* Comparison Logic */}
+                    {lastLog ? (
                         <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/30 text-sm">
                             <div className="flex items-center justify-between gap-2 text-blue-600 dark:text-blue-400 font-semibold mb-2">
-                                <span className="flex items-center gap-1"><History size={14} /> Last Time ({new Date(prevSession?.startTime || 0).toLocaleDateString()})</span>
+                                <span className="flex items-center gap-1"><History size={14} /> Last Time ({new Date(lastLog.date || 0).toLocaleDateString()})</span>
                                 <span className="text-xs opacity-75">Beat these numbers!</span>
                             </div>
                             <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                                {prevSessionExercise.sets.map((s, i) => (
+                                {lastLog.sets.map((s, i) => (
                                     <div key={i} className="flex-shrink-0 bg-white dark:bg-dark-card px-2 py-1 rounded border border-blue-200 dark:border-blue-800/50 text-xs">
-                                        {(!prevSessionExercise.trackingType || prevSessionExercise.trackingType === 'reps_weight') && (
+                                        {/* Fallback logic if tracking type is missing in history */}
+                                        {(s.weight > 0 && s.reps > 0) && (
                                             <span>{s.weight}kg x {s.reps}</span>
                                         )}
-                                        {prevSessionExercise.trackingType === 'reps_only' && (
+                                        {(s.weight === 0 && s.reps > 0) && (
                                             <span>{s.reps} reps</span>
                                         )}
-                                        {prevSessionExercise.trackingType === 'duration' && (
+                                        {s.duration > 0 && (
                                             <span>{s.duration}m</span>
                                         )}
-                                        {prevSessionExercise.trackingType === 'distance_duration' && (
-                                            <span>{s.distance}km / {s.duration}m</span>
+                                        {s.distance > 0 && (
+                                            <span>{s.distance}km</span>
                                         )}
-                                        {s.rpe ? ` (RPE ${s.rpe})` : ''}
                                     </div>
                                 ))}
                             </div>
                         </div>
                     ) : (
-                        <div className="mb-4 text-xs text-gray-400 italic">No previous data for this exercise in this routine.</div>
+                        <div className="mb-4 text-xs text-gray-400 italic">No previous history found for this exercise.</div>
                     )}
 
                 </div>
@@ -614,21 +736,77 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
 
             {/* Quick Nav Buttons */}
             <div className="grid grid-cols-2 gap-4 mt-8">
+                {activeExerciseIndex > 0 ? (
+                    <Button
+                        variant="secondary"
+                        onClick={() => setActiveExerciseIndex(prev => prev - 1)}
+                        className="w-full"
+                    >
+                        <ChevronLeft size={16} className="mr-2" /> Previous
+                    </Button>
+                ) : (
+                    <div></div> // Spacer
+                )}
+
                 <Button
-                    variant="secondary"
-                    disabled={activeExerciseIndex === 0}
-                    onClick={() => setActiveExerciseIndex(prev => prev - 1)}
+                    size="lg"
+                    onClick={handleFinishExercise}
+                    className={`w-full font-bold shadow-lg shadow-primary-500/30 ${activeExerciseIndex === session.exercises.length - 1 ? 'bg-green-600 hover:bg-green-700' : 'bg-primary-600 hover:bg-primary-700'}`}
                 >
-                    Previous
-                </Button>
-                <Button
-                    variant="primary"
-                    disabled={activeExerciseIndex === session.exercises.length - 1}
-                    onClick={() => setActiveExerciseIndex(prev => prev + 1)}
-                >
-                    Next Exercise
+                    {activeExerciseIndex === session.exercises.length - 1 ? (
+                        <span className="flex items-center gap-2">Finish Workout <Check size={18} /></span>
+                    ) : (
+                        <span className="flex items-center gap-2">Finish Exercise <ChevronRight size={18} /></span>
+                    )}
                 </Button>
             </div>
+
+            {/* Exercise Summary Modal */}
+            <Modal isOpen={isExerciseSummaryModalOpen} onClose={() => setIsExerciseSummaryModalOpen(false)} title="Exercise Summary">
+                {summaryStats && (
+                    <div className="space-y-6 text-center">
+                        <div className="flex justify-center">
+                            <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 flex items-center justify-center">
+                                <Check size={32} strokeWidth={3} />
+                            </div>
+                        </div>
+
+                        <div>
+                            <h3 className="text-xl font-bold text-gray-900 dark:text-white">Good Job!</h3>
+                            <p className="text-gray-500 dark:text-gray-400">{currentExercise.name} Completed</p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                                <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">Total Volume</p>
+                                <div className="text-2xl font-black text-gray-900 dark:text-white mt-1">
+                                    {summaryStats.current.volume}kg
+                                </div>
+                                {summaryStats.diff.volume !== 0 && (
+                                    <div className={`text-xs font-bold mt-1 ${summaryStats.diff.volume > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                        {summaryStats.diff.volume > 0 ? '+' : ''}{summaryStats.diff.volume.toFixed(1)}%
+                                    </div>
+                                )}
+                            </div>
+                            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                                <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">Max Weight</p>
+                                <div className="text-2xl font-black text-gray-900 dark:text-white mt-1">
+                                    {summaryStats.current.maxWeight}kg
+                                </div>
+                                {summaryStats.diff.maxWeight !== 0 && (
+                                    <div className={`text-xs font-bold mt-1 ${summaryStats.diff.maxWeight > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                        {summaryStats.diff.maxWeight > 0 ? '+' : ''}{summaryStats.diff.maxWeight.toFixed(1)}%
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <Button onClick={confirmNextExercise} className="w-full" size="lg">
+                            {activeExerciseIndex < session.exercises.length - 1 ? 'Next Exercise' : 'Finish Workout'}
+                        </Button>
+                    </div>
+                )}
+            </Modal>
 
             {/* Body Weight Input at end of list */}
             {activeExerciseIndex === session.exercises.length - 1 && (
@@ -669,7 +847,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                 onClose={() => setIsDeleteExerciseModalOpen(false)}
                 onConfirm={handleDeleteExercise}
                 title="Remove Exercise?"
-                message={`Are you sure you want to remove ${currentExercise?.name} from this workout? This cannot be undone.`}
+                message={`Are you sure you want to remove ${currentExercise?.name} from this workout ? This cannot be undone.`}
                 confirmText="Remove"
                 variant="danger"
             />
@@ -681,20 +859,20 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                     <div className="space-y-3">
                         <button
                             onClick={() => handleUpdateTrackingType('reps_weight')}
-                            className={`w-full p-4 rounded-xl border-2 flex items-center justify-between ${currentExercise?.trackingType === 'reps_weight' || !currentExercise?.trackingType
+                            className={`w - full p - 4 rounded - xl border - 2 flex items - center justify - between ${currentExercise?.trackingType === 'reps_weight' || !currentExercise?.trackingType
                                 ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
                                 : 'border-transparent bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                }`}
+                                } `}
                         >
                             <span className="font-bold">Weight & Reps</span>
                             {(currentExercise?.trackingType === 'reps_weight' || !currentExercise?.trackingType) && <Check size={20} />}
                         </button>
                         <button
                             onClick={() => handleUpdateTrackingType('reps_only')}
-                            className={`w-full p-4 rounded-xl border-2 flex items-center justify-between ${currentExercise?.trackingType === 'reps_only'
+                            className={`w - full p - 4 rounded - xl border - 2 flex items - center justify - between ${currentExercise?.trackingType === 'reps_only'
                                 ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
                                 : 'border-transparent bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                }`}
+                                } `}
                         >
                             <span className="font-bold">Reps Only</span>
                             <span className="text-xs opacity-70">Bodyweight</span>
@@ -703,10 +881,10 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
 
                         <button
                             onClick={() => handleUpdateTrackingType('duration')}
-                            className={`w-full p-4 rounded-xl border-2 flex items-center justify-between ${currentExercise?.trackingType === 'duration'
+                            className={`w - full p - 4 rounded - xl border - 2 flex items - center justify - between ${currentExercise?.trackingType === 'duration'
                                 ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
                                 : 'border-transparent bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                }`}
+                                } `}
                         >
                             <span className="font-bold">Duration</span>
                             <span className="text-xs opacity-70">Time (min)</span>
@@ -715,10 +893,10 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
 
                         <button
                             onClick={() => handleUpdateTrackingType('distance_duration')}
-                            className={`w-full p-4 rounded-xl border-2 flex items-center justify-between ${currentExercise?.trackingType === 'distance_duration'
+                            className={`w - full p - 4 rounded - xl border - 2 flex items - center justify - between ${currentExercise?.trackingType === 'distance_duration'
                                 ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
                                 : 'border-transparent bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                }`}
+                                } `}
                         >
                             <span className="font-bold">Cardio</span>
                             <span className="text-xs opacity-70">Dist (km) + Time</span>
@@ -750,7 +928,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                                 disabled={!customExerciseName.trim()}
                                 onClick={() => {
                                     if (customExerciseName.trim()) {
-                                        handleAddExercise(customExerciseName.trim(), customTrackingType);
+                                        handleAddExercise(customExerciseName.trim(), customTrackingType, 'Custom');
                                         setCustomExerciseName('');
                                     }
                                 }}
@@ -762,16 +940,16 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                         <div className="mt-4 mb-4">
                             <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Tracking Type</label>
                             <div className="bg-white dark:bg-dark-card rounded-lg p-1 flex gap-1 border border-gray-200 dark:border-gray-700">
-                                <button onClick={() => setCustomTrackingType('reps_weight')} className={`flex-1 py-1.5 text-xs font-medium rounded ${customTrackingType === 'reps_weight' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'}`}>
+                                <button onClick={() => setCustomTrackingType('reps_weight')} className={`flex - 1 py - 1.5 text - xs font - medium rounded ${customTrackingType === 'reps_weight' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'} `}>
                                     Weight & Reps
                                 </button>
-                                <button onClick={() => setCustomTrackingType('reps_only')} className={`flex-1 py-1.5 text-xs font-medium rounded ${customTrackingType === 'reps_only' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'}`}>
+                                <button onClick={() => setCustomTrackingType('reps_only')} className={`flex - 1 py - 1.5 text - xs font - medium rounded ${customTrackingType === 'reps_only' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'} `}>
                                     Reps Only
                                 </button>
-                                <button onClick={() => setCustomTrackingType('duration')} className={`flex-1 py-1.5 text-xs font-medium rounded ${customTrackingType === 'duration' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'}`}>
+                                <button onClick={() => setCustomTrackingType('duration')} className={`flex - 1 py - 1.5 text - xs font - medium rounded ${customTrackingType === 'duration' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'} `}>
                                     Duration
                                 </button>
-                                <button onClick={() => setCustomTrackingType('distance_duration')} className={`flex-1 py-1.5 text-xs font-medium rounded ${customTrackingType === 'distance_duration' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'}`}>
+                                <button onClick={() => setCustomTrackingType('distance_duration')} className={`flex - 1 py - 1.5 text - xs font - medium rounded ${customTrackingType === 'distance_duration' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-500'} `}>
                                     Cardio
                                 </button>
                             </div>
@@ -803,7 +981,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                                 {COMMON_EXERCISES[selectedMuscle].map(ex => (
                                     <button
                                         key={ex.name}
-                                        onClick={() => handleAddExercise(ex.name, ex.defaultTrackingType || 'reps_weight')}
+                                        onClick={() => handleAddExercise(ex.name, ex.defaultTrackingType || 'reps_weight', selectedMuscle)}
                                         className="w-full text-left p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex justify-between items-center group"
                                     >
                                         <div>
@@ -818,6 +996,16 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({ routine, onFinish,
                     )}
                 </div>
             </Modal>
-        </div >
+            {/* Add to Routine Confirmation */}
+            <ConfirmationModal
+                isOpen={isAddToRoutineModalOpen}
+                onClose={() => confirmAddExercise(false)}
+                onConfirm={() => confirmAddExercise(true)}
+                title="Update Routine?"
+                message={`Do you want to add "${pendingExercise?.name}" to your "${routine.name}" routine permanently ? `}
+                confirmText="Yes, Update Routine"
+                cancelText="No, Just This Workout"
+            />
+        </div>
     );
 };

@@ -18,6 +18,7 @@ export const DatabaseService = {
     const { data: routinesData, error: routinesError } = await supabase
       .from('routines')
       .select('*')
+      .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
 
     if (routinesError) {
@@ -39,7 +40,8 @@ export const DatabaseService = {
         name: r.name,
         dayLabel: r.day_label,
         exercises: r.exercises_json,
-        lastPerformed: lastSession ? lastSession.start_time : 0 // 0 means never performed (priority)
+        lastPerformed: lastSession ? lastSession.start_time : 0, // 0 means never performed (priority)
+        sortOrder: r.sort_order
       };
     });
   },
@@ -52,7 +54,8 @@ export const DatabaseService = {
       id: routine.id,
       user_id: user.id,
       name: routine.name,
-      exercises_json: routine.exercises
+      exercises_json: routine.exercises,
+      sort_order: routine.sortOrder
     };
 
     const { error } = await supabase.from('routines').upsert(payload);
@@ -64,6 +67,38 @@ export const DatabaseService = {
     const { error } = await supabase.from('routines').delete().eq('id', id);
     if (error) console.error('Error deleting routine:', error);
     return { error };
+  },
+
+  addExerciseToRoutine: async (routineId: string, exercise: Routine['exercises'][0]) => {
+    const { data: routines, error: fetchError } = await supabase
+      .from('routines')
+      .select('*')
+      .eq('id', routineId)
+      .single();
+
+    if (fetchError || !routines) {
+      console.error("Error fetching routine to update:", fetchError);
+      return;
+    }
+
+    const updatedExercises = [...(routines.exercises_json || []), exercise];
+
+    const { error } = await supabase
+      .from('routines')
+      .update({ exercises_json: updatedExercises })
+      .eq('id', routineId);
+
+    if (error) console.error("Error adding exercise to routine:", error);
+  },
+
+  reorderRoutines: async (routines: Routine[]) => {
+    for (const [index, r] of routines.entries()) {
+      const { error } = await supabase
+        .from('routines')
+        .update({ sort_order: index })
+        .eq('id', r.id);
+      if (error) console.error("Error reordering routine:", r.id, error);
+    }
   },
 
   // --- Sessions ---
@@ -90,6 +125,85 @@ export const DatabaseService = {
       bodyWeight: s.exercises_json.bodyWeight,
       exercises: s.exercises_json.exercises || s.exercises_json
     }));
+  },
+
+  getExerciseHistory: async (exerciseName: string): Promise<{ date: string, maxWeight: number, totalVolume: number, oneRepMax: number }[]> => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('date, exercises_json')
+      .order('date', { ascending: true });
+
+    if (error || !data) {
+      console.error('Error fetching exercise history:', error);
+      return [];
+    }
+
+    const history: { date: string, maxWeight: number, totalVolume: number, oneRepMax: number }[] = [];
+
+    data.forEach((session: any) => {
+      // Handle both structure variations if necessary, though we standardize on exercises_json having the array directly or in a .exercises prop
+      const exercises = session.exercises_json.exercises || session.exercises_json;
+      if (Array.isArray(exercises)) {
+        const exerciseData = exercises.find((e: any) => e.name === exerciseName);
+        if (exerciseData && exerciseData.sets && exerciseData.sets.length > 0) {
+          let maxWeight = 0;
+          let vol = 0;
+          let calculated1RM = 0;
+
+          exerciseData.sets.forEach((s: any) => {
+            if (s.completed) {
+              const weight = Number(s.weight) || 0;
+              const reps = Number(s.reps) || 0;
+
+              if (weight > maxWeight) maxWeight = weight;
+              vol += (weight * reps);
+
+              // Basic Epley Formula for 1RM: w * (1 + r/30)
+              if (weight > 0 && reps > 0) {
+                const est1RM = weight * (1 + reps / 30);
+                if (est1RM > calculated1RM) calculated1RM = est1RM;
+              }
+            }
+          });
+
+          if (vol > 0 || maxWeight > 0) {
+            history.push({
+              date: session.date,
+              maxWeight,
+              totalVolume: vol,
+              oneRepMax: Math.round(calculated1RM)
+            });
+          }
+        }
+      }
+    });
+
+    return history;
+  },
+
+  getLastLogForExercise: async (exerciseName: string): Promise<{ date: string, sets: any[] } | null> => {
+    // Fetch sessions ordered by date desc
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('date, exercises_json')
+      .order('date', { ascending: false });
+
+    if (error || !data) return null;
+
+    for (const session of data) {
+      const exercises = session.exercises_json.exercises || session.exercises_json;
+      if (Array.isArray(exercises)) {
+        const ex = exercises.find((e: any) => e.name === exerciseName);
+        // Check if it has completed sets
+        if (ex && ex.sets && ex.sets.some((s: any) => s.completed)) {
+          return {
+            date: session.date,
+            sets: ex.sets
+          };
+        }
+      }
+    }
+    return null;
   },
 
   saveSession: async (session: WorkoutSession) => {

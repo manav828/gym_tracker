@@ -1,5 +1,5 @@
 import React from 'react';
-import { LucideIcon } from 'lucide-react';
+import { LucideIcon, ChevronRight } from 'lucide-react';
 
 // --- Button ---
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -122,5 +122,168 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         </div>
       </div>
     </Modal>
+  );
+};
+
+// --- Swipe Button ---
+interface SwipeButtonProps {
+  onSwipe: () => void;
+  text?: string;
+  className?: string;
+}
+
+export const SwipeButton: React.FC<SwipeButtonProps> = ({ onSwipe, text = "SWIPE TO START", className = "" }) => {
+  const [dragX, setDragX] = React.useState(0);
+  const [isSwiping, setIsSwiping] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const handleRef = React.useRef<HTMLDivElement>(null);
+
+  const handleStart = () => setIsSwiping(true);
+
+  const handleMove = (clientX: number) => {
+    if (!isSwiping || !containerRef.current || !handleRef.current) return;
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const handleWidth = handleRef.current.offsetWidth;
+    const maxX = containerRect.width - handleWidth - 8;
+
+    let newX = clientX - containerRect.left - (handleWidth / 2);
+    newX = Math.max(0, Math.min(newX, maxX));
+    setDragX(newX);
+
+    if (newX >= maxX * 0.95) {
+      setIsSwiping(false);
+      setDragX(maxX);
+      onSwipe();
+    }
+  };
+
+  const handleEnd = () => {
+    if (!isSwiping) return;
+    setIsSwiping(false);
+    if (dragX < (containerRef.current?.offsetWidth || 0) * 0.8) {
+      setDragX(0);
+    }
+  };
+
+  React.useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => handleMove(e.clientX);
+    const onMouseUp = () => handleEnd();
+    const onTouchMove = (e: TouchEvent) => handleMove(e.touches[0].clientX);
+    const onTouchEnd = () => handleEnd();
+
+    if (isSwiping) {
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+      window.addEventListener('touchmove', onTouchMove, { passive: false });
+      window.addEventListener('touchend', onTouchEnd);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [isSwiping, dragX]);
+
+  const containerWidth = containerRef.current?.offsetWidth || 1;
+  const progressPercent = (dragX / (containerWidth - 64)) * 100;
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative h-16 bg-slate-900/50 dark:bg-black/40 rounded-2xl overflow-hidden border border-white/5 shadow-inner backdrop-blur-md ${className}`}
+    >
+      {/* Background Hyper-Speed Starfield */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden bg-black/20">
+        {[...Array(20)].map((_, i) => (
+          <div
+            key={i}
+            className={`absolute h-[1px] bg-gradient-to-r from-transparent via-white/40 to-white/10 ${isSwiping ? 'animate-spark-fast' : 'animate-spark-slow'}`}
+            style={{
+              top: `${Math.random() * 100}%`,
+              left: '-50px',
+              width: isSwiping ? `${Math.random() * 100 + 100}px` : `${Math.random() * 40 + 20}px`,
+              opacity: Math.random() * 0.5 + 0.2,
+              animationDelay: `${Math.random() * 2000}ms`,
+              animationDuration: isSwiping ? `${Math.random() * 300 + 200}ms` : `${Math.random() * 1000 + 1000}ms`,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Background Text with Shimmer/Progress */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <span className="relative">
+          <span className="text-white/10 font-black text-sm tracking-[0.2em] uppercase select-none">
+            {text}
+          </span>
+          <span
+            className="absolute inset-0 text-white/50 font-black text-sm tracking-[0.2em] uppercase select-none overflow-hidden transition-all duration-75"
+            style={{ width: `${progressPercent}%` }}
+          >
+            <span className="whitespace-nowrap">{text}</span>
+          </span>
+        </span>
+      </div>
+
+      {/* Reactive Glow behind handle */}
+      <div
+        className="absolute w-24 h-24 bg-primary-500/30 blur-2xl rounded-full pointer-events-none transition-opacity duration-300"
+        style={{
+          left: dragX - 20,
+          top: -20,
+          opacity: isSwiping ? 1 : 0.3
+        }}
+      />
+
+      {/* Progress gradient track */}
+      <div
+        className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-primary-600/30 via-primary-500/10 to-transparent transition-all duration-75"
+        style={{ width: dragX + 48 }}
+      />
+
+      {/* Handle */}
+      <div
+        ref={handleRef}
+        onMouseDown={handleStart}
+        onTouchStart={handleStart}
+        style={{ transform: `translateX(${dragX}px)` }}
+        className={`absolute left-1 top-1 bottom-1 w-14 bg-primary-500 rounded-xl shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing transition-all duration-75 group 
+          ${isSwiping ? 'scale-105 shadow-primary-500/50' : 'animate-guidance-nudge shadow-md'}`}
+      >
+        <div className="flex gap-0.5 relative">
+          <ChevronRight size={20} className={`text-white stroke-[3px] transition-transform ${isSwiping ? 'animate-pulse scale-110' : ''}`} />
+          <ChevronRight size={20} className={`text-white/40 stroke-[3px] -ml-2.5 transition-all ${isSwiping ? 'animate-pulse delay-75' : ''}`} />
+
+          {/* Subtle wing effect on handle */}
+          {isSwiping && (
+            <div className="absolute inset-0 bg-white/20 blur-md rounded-full animate-ping pointer-events-none" />
+          )}
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes spark-motion {
+          0% { transform: translateX(0) scaleX(1); opacity: 0; }
+          10% { opacity: 1; }
+          90% { opacity: 1; }
+          100% { transform: translateX(600px) scaleX(2); opacity: 0; }
+        }
+        .animate-spark-slow {
+          animation: spark-motion linear infinite;
+        }
+        .animate-spark-fast {
+          animation: spark-motion linear infinite;
+        }
+        @keyframes guidance-nudge {
+          0%, 100% { transform: translateX(0); }
+          50% { transform: translateX(12px); }
+        }
+        .animate-guidance-nudge {
+          animation: guidance-nudge 1.5s ease-in-out infinite;
+        }
+      `}</style>
+    </div>
   );
 };
